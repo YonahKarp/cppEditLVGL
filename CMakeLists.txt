@@ -34,8 +34,10 @@ add_executable(justtype_lvgl
     src/app.cpp
     src/editor.cpp
     src/sidebar.cpp
+    src/sidebar_dialog.cpp
     src/search.cpp
     src/file_manager.cpp
+    src/text_navigation.cpp
 )
 
 target_include_directories(justtype_lvgl PRIVATE

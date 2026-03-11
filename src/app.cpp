@@ -4,6 +4,7 @@
 #include "search.h"
 #include "theme.h"
 #include "file_manager.h"
+#include "text_navigation.h"
 #include <fstream>
 #include <cstdio>
 #include <sys/stat.h>
@@ -101,6 +102,17 @@ static void search_input_event_cb(lv_event_t* e) {
     }
 }
 
+static void clear_selection_local(lv_obj_t* textarea) {
+    if (!textarea) return;
+    lv_obj_t* label = lv_textarea_get_label(textarea);
+    if (label) {
+        lv_label_set_text_selection_start(label, LV_LABEL_TEXT_SELECTION_OFF);
+        lv_label_set_text_selection_end(label, LV_LABEL_TEXT_SELECTION_OFF);
+        lv_obj_invalidate(textarea);
+    }
+    g_selection_start = -1;
+}
+
 static std::string get_selected_text(lv_obj_t* textarea) {
     if (!textarea || !lv_obj_check_type(textarea, &lv_textarea_class)) {
         return "";
@@ -132,17 +144,6 @@ static std::string get_selected_text(lv_obj_t* textarea) {
     return std::string(text + sel_start, sel_end - sel_start);
 }
 
-static void clear_selection(lv_obj_t* textarea) {
-    if (!textarea) return;
-    lv_obj_t* label = lv_textarea_get_label(textarea);
-    if (label) {
-        lv_label_set_text_selection_start(label, LV_LABEL_TEXT_SELECTION_OFF);
-        lv_label_set_text_selection_end(label, LV_LABEL_TEXT_SELECTION_OFF);
-        lv_obj_invalidate(textarea);
-    }
-    g_selection_start = -1;
-}
-
 static void delete_selected_text(lv_obj_t* textarea) {
     if (!textarea || !lv_obj_check_type(textarea, &lv_textarea_class)) return;
     
@@ -169,7 +170,7 @@ static void delete_selected_text(lv_obj_t* textarea) {
     new_text.append(text, sel_start);
     new_text.append(text + sel_end);
     
-    clear_selection(textarea);
+    clear_selection_local(textarea);
     lv_textarea_set_text(textarea, new_text.c_str());
     lv_textarea_set_cursor_pos(textarea, sel_start);
 }
@@ -240,90 +241,6 @@ static void handle_clipboard() {
         SDL_free(clipboard);
     }
 }
-
-static int32_t find_paragraph_start(const char* text, int32_t pos) {
-    if (pos <= 0) return 0;
-    pos--;
-    while (pos > 0 && text[pos] != '\n') pos--;
-    if (pos > 0) {
-        pos--;
-        while (pos > 0 && text[pos] != '\n') pos--;
-        if (pos > 0) pos++;
-    }
-    return pos;
-}
-
-static int32_t find_paragraph_end(const char* text, int32_t text_len, int32_t pos) {
-    while (pos < text_len && text[pos] != '\n') pos++;
-    if (pos < text_len) pos++;
-    while (pos < text_len && text[pos] != '\n') pos++;
-    return pos;
-}
-
-static int32_t find_prev_word_start(const char* text, int32_t pos) {
-    if (pos <= 0) return 0;
-    pos--;
-    while (pos > 0 && (text[pos] == ' ' || text[pos] == '\n' || text[pos] == '\t')) pos--;
-    while (pos > 0 && text[pos - 1] != ' ' && text[pos - 1] != '\n' && text[pos - 1] != '\t') pos--;
-    return pos;
-}
-
-static int32_t find_next_word_end(const char* text, int32_t text_len, int32_t pos) {
-    if (pos >= text_len) return text_len;
-    while (pos < text_len && (text[pos] == ' ' || text[pos] == '\n' || text[pos] == '\t')) pos++;
-    while (pos < text_len && text[pos] != ' ' && text[pos] != '\n' && text[pos] != '\t') pos++;
-    return pos;
-}
-
-static int32_t find_line_start(const char* text, int32_t pos) {
-    if (pos <= 0) return 0;
-    pos--;
-    while (pos > 0 && text[pos] != '\n') pos--;
-    if (text[pos] == '\n') pos++;
-    return pos;
-}
-
-static int32_t find_line_end(const char* text, int32_t text_len, int32_t pos) {
-    while (pos < text_len && text[pos] != '\n') pos++;
-    return pos;
-}
-
-struct KeyRepeatState {
-    bool last_pressed = false;
-    bool acted_on_press = false;
-    uint32_t press_time = 0;
-    uint32_t last_action_time = 0;
-    
-    static constexpr uint32_t INITIAL_DELAY = 800;
-    static constexpr uint32_t REPEAT_DELAY = 80;
-    
-    bool should_act(bool is_pressed, uint32_t now) {
-        if (!is_pressed) {
-            last_pressed = false;
-            acted_on_press = false;
-            return false;
-        }
-        
-        bool is_new_press = !last_pressed;
-        last_pressed = true;
-        
-        if (is_new_press) {
-            press_time = now;
-            last_action_time = now;
-            acted_on_press = true;
-            return true;
-        }
-        
-        if (acted_on_press && 
-            (now - press_time >= INITIAL_DELAY) && 
-            (now - last_action_time >= REPEAT_DELAY)) {
-            last_action_time = now;
-            return true;
-        }
-        
-        return false;
-    }
-};
 
 static void handle_text_selection() {
     const uint8_t* kb_state = SDL_GetKeyboardState(nullptr);
@@ -555,7 +472,7 @@ static void keyboard_event_cb(lv_event_t* e) {
             close_search(g_search);
             lv_obj_add_flag(g_editor.search_container, LV_OBJ_FLAG_HIDDEN);
             lv_obj_clear_flag(g_editor.word_count_label, LV_OBJ_FLAG_HIDDEN);
-            clear_selection(g_editor.textarea);
+            clear_selection_local(g_editor.textarea);
             focus_editor_textarea();
         } else if (g_sidebar.visible) {
             hide_sidebar(g_sidebar, g_editor);
@@ -760,7 +677,7 @@ static void handle_search_navigation() {
         lv_obj_add_flag(g_editor.search_container, LV_OBJ_FLAG_HIDDEN);
         lv_obj_clear_flag(g_editor.word_count_label, LV_OBJ_FLAG_HIDDEN);
         lv_textarea_set_text(g_editor.search_input, "");
-        clear_selection(g_editor.textarea);
+        clear_selection_local(g_editor.textarea);
         focus_editor_textarea();
         return;
     }
@@ -835,7 +752,7 @@ static void handle_shortcuts() {
                 close_search(g_search);
                 lv_obj_add_flag(g_editor.search_container, LV_OBJ_FLAG_HIDDEN);
                 lv_obj_clear_flag(g_editor.word_count_label, LV_OBJ_FLAG_HIDDEN);
-                clear_selection(g_editor.textarea);
+                clear_selection_local(g_editor.textarea);
                 focus_editor_textarea();
             }
         }
