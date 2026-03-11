@@ -6,8 +6,8 @@
 constexpr int SEARCH_BUFFER_SIZE = 256;
 
 struct SearchMatch {
-    int start;
-    int end;
+    int start = 0;
+    int end = 0;
 };
 
 struct SearchState {

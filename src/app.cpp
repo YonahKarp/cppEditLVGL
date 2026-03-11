@@ -144,7 +144,7 @@ static std::string get_selected_text(lv_obj_t* textarea) {
     return std::string(text + sel_start, sel_end - sel_start);
 }
 
-static void delete_selected_text(lv_obj_t* textarea) {
+static void delete_selected_text(lv_obj_t* textarea, uint32_t* out_cursor_pos = nullptr) {
     if (!textarea || !lv_obj_check_type(textarea, &lv_textarea_class)) return;
     
     lv_obj_t* label = lv_textarea_get_label(textarea);
@@ -163,16 +163,36 @@ static void delete_selected_text(lv_obj_t* textarea) {
         sel_end = tmp;
     }
     
-    const char* text = lv_textarea_get_text(textarea);
-    if (!text) return;
+    uint32_t chars_to_delete = sel_end - sel_start;
     
-    std::string new_text;
-    new_text.append(text, sel_start);
-    new_text.append(text + sel_end);
+    // Clear selection first
+    lv_label_set_text_selection_start(label, LV_LABEL_TEXT_SELECTION_OFF);
+    lv_label_set_text_selection_end(label, LV_LABEL_TEXT_SELECTION_OFF);
+    g_selection_start = -1;
     
-    clear_selection_local(textarea);
-    lv_textarea_set_text(textarea, new_text.c_str());
-    lv_textarea_set_cursor_pos(textarea, sel_start);
+    // Move cursor to end of selection and delete backwards
+    lv_textarea_set_cursor_pos(textarea, sel_end);
+    for (uint32_t i = 0; i < chars_to_delete; i++) {
+        lv_textarea_delete_char(textarea);
+    }
+    
+    if (out_cursor_pos) {
+        *out_cursor_pos = sel_start;
+    }
+}
+
+static bool has_selection(lv_obj_t* textarea) {
+    if (!textarea || !lv_obj_check_type(textarea, &lv_textarea_class)) return false;
+    
+    lv_obj_t* label = lv_textarea_get_label(textarea);
+    if (!label) return false;
+    
+    uint32_t sel_start = lv_label_get_text_selection_start(label);
+    uint32_t sel_end = lv_label_get_text_selection_end(label);
+    
+    return sel_start != LV_LABEL_TEXT_SELECTION_OFF && 
+           sel_end != LV_LABEL_TEXT_SELECTION_OFF &&
+           sel_start != sel_end;
 }
 
 static void handle_clipboard() {
@@ -222,15 +242,12 @@ static void handle_clipboard() {
         char* clipboard = SDL_GetClipboardText();
         if (clipboard && strlen(clipboard) > 0) {
             // Delete any selected text first
-            std::string selected = get_selected_text(focused);
-            if (!selected.empty()) {
+            if (has_selection(focused)) {
                 delete_selected_text(focused);
             }
             
-            // Insert clipboard text
-            for (const char* p = clipboard; *p; p++) {
-                lv_textarea_add_char(focused, *p);
-            }
+            // Insert clipboard text using add_text for proper cursor handling
+            lv_textarea_add_text(focused, clipboard);
             
             if (focused == g_editor.textarea) {
                 g_editor.content_pending_save = true;
@@ -281,23 +298,27 @@ static void handle_text_selection() {
     uint32_t now = lv_tick_get();
     bool nav_debounce = (now - last_nav_time) > 100;
     
-    // Handle Ctrl+Backspace (delete previous word)
+    // Handle Ctrl+Backspace (delete previous word, or delete selection if present)
     bool ctrl_backspace = ctrl && kb_state[SDL_SCANCODE_BACKSPACE] && focused == g_editor.textarea;
     if (ctrl_backspace_state.should_act(ctrl_backspace, now)) {
-        int32_t word_start = find_prev_word_start(text, cur_pos);
-        if (word_start < cur_pos) {
-            std::string new_text;
-            new_text.append(text, word_start);
-            new_text.append(text + cur_pos);
-            lv_textarea_set_text(focused, new_text.c_str());
-            lv_textarea_set_cursor_pos(focused, word_start);
-            g_editor.content_pending_save = true;
-            g_editor.content_change_time = lv_tick_get();
-            update_word_count(g_editor);
-            text = lv_textarea_get_text(focused);
-            text_len = strlen(text);
-            cur_pos = word_start;
+        if (has_selection(focused)) {
+            delete_selected_text(focused);
+        } else {
+            int32_t word_start = find_prev_word_start(text, cur_pos);
+            if (word_start < cur_pos) {
+                // Delete characters using native LVGL deletion (faster than set_text)
+                int32_t chars_to_delete = cur_pos - word_start;
+                for (int32_t i = 0; i < chars_to_delete; i++) {
+                    lv_textarea_delete_char(focused);
+                }
+                cur_pos = word_start;
+            }
         }
+        g_editor.content_pending_save = true;
+        g_editor.content_change_time = lv_tick_get();
+        update_word_count(g_editor);
+        text = lv_textarea_get_text(focused);
+        text_len = strlen(text);
     }
     if (ctrl_backspace) return;
     
@@ -395,10 +416,6 @@ static void handle_text_selection() {
         lv_label_set_text_selection_end(label, sel_end);
         lv_obj_invalidate(focused);
         last_cursor_pos = new_pos;
-    }
-    
-    if (ctrl_up || ctrl_down || ctrl_shift_up || ctrl_shift_down) {
-        return;
     }
     
     if (ctrl_up || ctrl_down || ctrl_shift_up || ctrl_shift_down) {
@@ -892,7 +909,13 @@ void shutdown_app(App& app) {
         save_editor_state(g_editor);
     }
     
+    if (g_input_group) {
+        lv_group_delete(g_input_group);
+        g_input_group = nullptr;
+    }
+    
     lv_deinit();
+    SDL_Quit();
 }
 
 void run_app(App& app) {
@@ -968,6 +991,19 @@ void run_app(App& app) {
                 if ((wait_event.key.keysym.mod & KMOD_CTRL) &&
                     wait_event.key.keysym.sym == SDLK_BACKSPACE) {
                     consumed = true;
+                }
+                // Handle backspace/delete with selection in editor (delete selected text)
+                if (!g_sidebar.visible && 
+                    (wait_event.key.keysym.sym == SDLK_BACKSPACE || wait_event.key.keysym.sym == SDLK_DELETE) &&
+                    !(wait_event.key.keysym.mod & KMOD_CTRL)) {
+                    lv_obj_t* focused = lv_group_get_focused(g_input_group);
+                    if (focused == g_editor.textarea && has_selection(focused)) {
+                        delete_selected_text(focused);
+                        g_editor.content_pending_save = true;
+                        g_editor.content_change_time = lv_tick_get();
+                        update_word_count(g_editor);
+                        consumed = true;
+                    }
                 }
                 // When sidebar is visible, handle keyboard input ourselves
                 if (g_sidebar.visible) {

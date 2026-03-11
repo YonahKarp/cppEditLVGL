@@ -130,9 +130,21 @@ int navigate_to_prev_match(SearchState& search) {
 }
 
 bool is_position_in_match(const SearchState& search, int pos) {
-    for (const auto& match : search.matches) {
+    if (search.matches.empty()) return false;
+    
+    int left = 0;
+    int right = static_cast<int>(search.matches.size()) - 1;
+    
+    while (left <= right) {
+        int mid = left + (right - left) / 2;
+        const SearchMatch& match = search.matches[mid];
+        
         if (pos >= match.start && pos < match.end) {
             return true;
+        } else if (pos < match.start) {
+            right = mid - 1;
+        } else {
+            left = mid + 1;
         }
     }
     return false;

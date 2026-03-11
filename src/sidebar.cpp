@@ -239,6 +239,17 @@ void update_sidebar_theme(SidebarState& sidebar, bool dark) {
     }
 }
 
+static bool case_insensitive_less(const std::string& a, const std::string& b) {
+    size_t min_len = a.size() < b.size() ? a.size() : b.size();
+    for (size_t i = 0; i < min_len; ++i) {
+        char ca = std::tolower(static_cast<unsigned char>(a[i]));
+        char cb = std::tolower(static_cast<unsigned char>(b[i]));
+        if (ca < cb) return true;
+        if (ca > cb) return false;
+    }
+    return a.size() < b.size();
+}
+
 void scan_txt_files(SidebarState& sidebar, const std::string& user_files_dir) {
     sidebar.file_list_items.clear();
     
@@ -254,13 +265,7 @@ void scan_txt_files(SidebarState& sidebar, const std::string& user_files_dir) {
     }
     closedir(dir);
     
-    std::sort(sidebar.file_list_items.begin(), sidebar.file_list_items.end(),
-              [](const std::string& a, const std::string& b) {
-                  std::string la = a, lb = b;
-                  std::transform(la.begin(), la.end(), la.begin(), ::tolower);
-                  std::transform(lb.begin(), lb.end(), lb.begin(), ::tolower);
-                  return la < lb;
-              });
+    std::sort(sidebar.file_list_items.begin(), sidebar.file_list_items.end(), case_insensitive_less);
 }
 
 void scan_deleted_files(SidebarState& sidebar, const std::string& recently_deleted_dir) {
@@ -278,13 +283,7 @@ void scan_deleted_files(SidebarState& sidebar, const std::string& recently_delet
     }
     closedir(dir);
     
-    std::sort(sidebar.deleted_file_list.begin(), sidebar.deleted_file_list.end(),
-              [](const std::string& a, const std::string& b) {
-                  std::string la = a, lb = b;
-                  std::transform(la.begin(), la.end(), la.begin(), ::tolower);
-                  std::transform(lb.begin(), lb.end(), lb.begin(), ::tolower);
-                  return la < lb;
-              });
+    std::sort(sidebar.deleted_file_list.begin(), sidebar.deleted_file_list.end(), case_insensitive_less);
 }
 
 static bool case_insensitive_contains(const std::string& str, const std::string& substr) {
@@ -646,12 +645,12 @@ void commit_rename(SidebarState& sidebar, EditorState& editor) {
     }
     
     if (sidebar.rename_file_index < 0 || 
-        sidebar.rename_file_index >= (int)sidebar.file_list_items.size()) {
+        sidebar.rename_file_index >= (int)sidebar.filtered_file_list.size()) {
         cancel_rename(sidebar, editor);
         return;
     }
     
-    std::string old_filename = sidebar.file_list_items[sidebar.rename_file_index];
+    std::string old_filename = sidebar.filtered_file_list[sidebar.rename_file_index];
     std::string old_path = editor.user_files_dir + "/" + old_filename;
     
     std::string new_filename = new_name;

@@ -104,16 +104,18 @@ inline Theme get_light_theme() {
     return t;
 }
 
+inline const Theme& get_dark_theme_cached() {
+    static const Theme theme = get_dark_theme();
+    return theme;
+}
+
+inline const Theme& get_light_theme_cached() {
+    static const Theme theme = get_light_theme();
+    return theme;
+}
+
 inline const Theme& get_theme(bool dark_theme) {
-    static Theme cached_theme;
-    static bool cached_dark_theme = !dark_theme;
-    
-    if (cached_dark_theme != dark_theme) {
-        cached_dark_theme = dark_theme;
-        cached_theme = dark_theme ? get_dark_theme() : get_light_theme();
-    }
-    
-    return cached_theme;
+    return dark_theme ? get_dark_theme_cached() : get_light_theme_cached();
 }
 
 inline bool theme_changed(bool dark_theme) {
