@@ -376,11 +376,15 @@ void refresh_file_list_ui(SidebarState& sidebar, EditorState& editor) {
             lv_obj_set_style_text_font(ta, &lv_font_montserrat_16, 0);
             lv_obj_set_style_pad_left(ta, 4, 0);
             lv_obj_set_style_pad_right(ta, 4, 0);
-            lv_obj_set_style_border_color(ta, theme.sidebar_btn_text, LV_PART_CURSOR);
+            // Cursor styling using theme colors
+            lv_obj_set_style_border_color(ta, theme.cursor, LV_PART_CURSOR);
+            lv_obj_set_style_border_color(ta, theme.cursor, LV_PART_CURSOR | LV_STATE_FOCUSED);
             lv_obj_set_style_border_opa(ta, LV_OPA_COVER, LV_PART_CURSOR);
+            lv_obj_set_style_border_opa(ta, LV_OPA_COVER, LV_PART_CURSOR | LV_STATE_FOCUSED);
             lv_obj_set_style_border_width(ta, 2, LV_PART_CURSOR);
             lv_obj_set_style_border_side(ta, LV_BORDER_SIDE_LEFT, LV_PART_CURSOR);
             lv_obj_set_style_bg_opa(ta, LV_OPA_TRANSP, LV_PART_CURSOR);
+            lv_obj_set_style_bg_opa(ta, LV_OPA_TRANSP, LV_PART_CURSOR | LV_STATE_FOCUSED);
             sidebar.rename_textarea = ta;
         } else {
             lv_obj_t* label = lv_label_create(file_btn);

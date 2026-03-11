@@ -268,6 +268,26 @@ static int32_t find_prev_word_start(const char* text, int32_t pos) {
     return pos;
 }
 
+static int32_t find_next_word_end(const char* text, int32_t text_len, int32_t pos) {
+    if (pos >= text_len) return text_len;
+    while (pos < text_len && (text[pos] == ' ' || text[pos] == '\n' || text[pos] == '\t')) pos++;
+    while (pos < text_len && text[pos] != ' ' && text[pos] != '\n' && text[pos] != '\t') pos++;
+    return pos;
+}
+
+static int32_t find_line_start(const char* text, int32_t pos) {
+    if (pos <= 0) return 0;
+    pos--;
+    while (pos > 0 && text[pos] != '\n') pos--;
+    if (text[pos] == '\n') pos++;
+    return pos;
+}
+
+static int32_t find_line_end(const char* text, int32_t text_len, int32_t pos) {
+    while (pos < text_len && text[pos] != '\n') pos++;
+    return pos;
+}
+
 struct KeyRepeatState {
     bool last_pressed = false;
     bool acted_on_press = false;
@@ -321,6 +341,10 @@ static void handle_text_selection() {
     static KeyRepeatState ctrl_shift_up_state;
     static KeyRepeatState ctrl_shift_down_state;
     static KeyRepeatState ctrl_backspace_state;
+    static KeyRepeatState ctrl_left_state;
+    static KeyRepeatState ctrl_right_state;
+    static KeyRepeatState alt_left_state;
+    static KeyRepeatState alt_right_state;
     
     lv_obj_t* focused = lv_group_get_focused(g_input_group);
     if (!focused || !lv_obj_check_type(focused, &lv_textarea_class)) {
@@ -359,6 +383,42 @@ static void handle_text_selection() {
         }
     }
     if (ctrl_backspace) return;
+    
+    // Handle Ctrl+Left/Right (word navigation) with key repeat
+    bool ctrl_left = ctrl && !shift && !alt && kb_state[SDL_SCANCODE_LEFT];
+    bool ctrl_right = ctrl && !shift && !alt && kb_state[SDL_SCANCODE_RIGHT];
+    
+    if (ctrl_left_state.should_act(ctrl_left, now)) {
+        int32_t new_pos = find_prev_word_start(text, cur_pos);
+        lv_textarea_set_cursor_pos(focused, new_pos);
+        g_selection_start = -1;
+    }
+    
+    if (ctrl_right_state.should_act(ctrl_right, now)) {
+        int32_t new_pos = find_next_word_end(text, text_len, cur_pos);
+        lv_textarea_set_cursor_pos(focused, new_pos);
+        g_selection_start = -1;
+    }
+    
+    if (ctrl_left || ctrl_right) return;
+    
+    // Handle Alt+Left/Right (line start/end) with key repeat
+    bool alt_left = alt && !shift && !ctrl && kb_state[SDL_SCANCODE_LEFT];
+    bool alt_right = alt && !shift && !ctrl && kb_state[SDL_SCANCODE_RIGHT];
+    
+    if (alt_left_state.should_act(alt_left, now)) {
+        int32_t new_pos = find_line_start(text, cur_pos);
+        lv_textarea_set_cursor_pos(focused, new_pos);
+        g_selection_start = -1;
+    }
+    
+    if (alt_right_state.should_act(alt_right, now)) {
+        int32_t new_pos = find_line_end(text, text_len, cur_pos);
+        lv_textarea_set_cursor_pos(focused, new_pos);
+        g_selection_start = -1;
+    }
+    
+    if (alt_left || alt_right) return;
     
     // Handle Alt+Up/Down (jump to top/bottom of document)
     if (alt && !shift && !ctrl && nav_debounce) {
@@ -976,7 +1036,15 @@ void run_app(App& app) {
                 // Consume Ctrl+Arrow keys so LVGL doesn't also handle them
                 if ((wait_event.key.keysym.mod & KMOD_CTRL) &&
                     (wait_event.key.keysym.sym == SDLK_UP || 
-                     wait_event.key.keysym.sym == SDLK_DOWN)) {
+                     wait_event.key.keysym.sym == SDLK_DOWN ||
+                     wait_event.key.keysym.sym == SDLK_LEFT ||
+                     wait_event.key.keysym.sym == SDLK_RIGHT)) {
+                    consumed = true;
+                }
+                // Consume Alt+Arrow keys so LVGL doesn't also handle them
+                if ((wait_event.key.keysym.mod & KMOD_ALT) &&
+                    (wait_event.key.keysym.sym == SDLK_LEFT ||
+                     wait_event.key.keysym.sym == SDLK_RIGHT)) {
                     consumed = true;
                 }
                 // Consume Ctrl+Backspace so LVGL doesn't also handle it
@@ -986,9 +1054,9 @@ void run_app(App& app) {
                 }
                 // When sidebar is visible, handle keyboard input ourselves
                 if (g_sidebar.visible) {
-                    // Handle backspace for search/rename
+                    // Handle backspace for search (renaming uses LVGL textarea)
                     if (wait_event.key.keysym.sym == SDLK_BACKSPACE) {
-                        if (g_sidebar.searching || g_sidebar.renaming) {
+                        if (g_sidebar.searching) {
                             handle_sidebar_backspace(g_sidebar, g_editor);
                         }
                     }
@@ -1005,8 +1073,11 @@ void run_app(App& app) {
                             }
                         }
                     }
-                    // Consume all keyboard events when sidebar is visible
-                    consumed = true;
+                    // Consume keyboard events when sidebar is visible, except when renaming
+                    // (rename textarea needs to receive input from LVGL)
+                    if (!g_sidebar.renaming) {
+                        consumed = true;
+                    }
                 }
             }
             
