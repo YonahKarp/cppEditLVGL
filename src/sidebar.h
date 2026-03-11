@@ -20,6 +20,7 @@ struct SidebarState {
     lv_obj_t* restore_dialog_label = nullptr;
     lv_obj_t* restore_btn = nullptr;
     lv_obj_t* restore_cancel_btn = nullptr;
+    lv_obj_t* rename_textarea = nullptr;
     
     bool visible = false;
     std::vector<std::string> file_list_items;
@@ -49,6 +50,9 @@ struct SidebarState {
     
     static constexpr int SIDEBAR_WIDTH = 280;
     static constexpr uint32_t ANIM_DURATION_MS = 150;
+    
+    bool animating = false;
+    uint32_t anim_start_time = 0;
 };
 
 void create_sidebar_ui(SidebarState& sidebar, EditorState& editor, lv_obj_t* parent);
@@ -82,3 +86,5 @@ void handle_sidebar_text_input(SidebarState& sidebar, EditorState& editor, const
 void handle_sidebar_backspace(SidebarState& sidebar, EditorState& editor);
 void start_rename(SidebarState& sidebar, EditorState& editor);
 void process_rename_save(SidebarState& sidebar, EditorState& editor, uint32_t debounce_delay);
+void commit_rename(SidebarState& sidebar, EditorState& editor);
+void cancel_rename(SidebarState& sidebar, EditorState& editor);

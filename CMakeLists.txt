@@ -9,19 +9,11 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(SDL2 REQUIRED sdl2)
 
-# Fetch LVGL
-include(FetchContent)
-
-FetchContent_Declare(
-    lvgl
-    GIT_REPOSITORY https://github.com/lvgl/lvgl.git
-    GIT_TAG v9.2.2
-)
-
-# Set LVGL options before making it available
+# Use local LVGL from libs folder
 set(LV_CONF_PATH ${CMAKE_SOURCE_DIR}/lv_conf.h CACHE STRING "" FORCE)
-
-FetchContent_MakeAvailable(lvgl)
+set(LV_CONF_BUILD_DISABLE_EXAMPLES ON CACHE BOOL "" FORCE)
+set(LV_CONF_BUILD_DISABLE_DEMOS ON CACHE BOOL "" FORCE)
+add_subdirectory(libs/lvgl)
 
 # Configure LVGL with our lv_conf.h
 target_compile_definitions(lvgl PUBLIC LV_CONF_INCLUDE_SIMPLE)

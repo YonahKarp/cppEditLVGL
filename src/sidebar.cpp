@@ -116,10 +116,17 @@ void create_sidebar_ui(SidebarState& sidebar, EditorState& editor, lv_obj_t* par
     lv_obj_set_flex_flow(sidebar.file_list, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(sidebar.file_list, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_row(sidebar.file_list, 8, 0);
+    lv_obj_set_style_pad_top(sidebar.file_list, 12, 0);
+    lv_obj_set_style_pad_bottom(sidebar.file_list, 12, 0);
     lv_obj_add_flag(sidebar.file_list, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_bg_color(sidebar.file_list, theme.sidebar_bg, 0);
     lv_obj_set_style_bg_opa(sidebar.file_list, LV_OPA_COVER, 0);
     lv_obj_set_scroll_dir(sidebar.file_list, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(sidebar.file_list, LV_SCROLLBAR_MODE_AUTO);
+    lv_obj_set_style_width(sidebar.file_list, 4, LV_PART_SCROLLBAR);
+    lv_obj_set_style_bg_color(sidebar.file_list, theme.text_dim, LV_PART_SCROLLBAR);
+    lv_obj_set_style_bg_opa(sidebar.file_list, LV_OPA_50, LV_PART_SCROLLBAR);
+    lv_obj_clear_flag(sidebar.file_list, LV_OBJ_FLAG_SCROLL_CHAIN);
 }
 
 static void sidebar_anim_cb(void* var, int32_t v) {
@@ -148,12 +155,21 @@ void show_sidebar(SidebarState& sidebar, EditorState& editor) {
     // Hide search container by default
     lv_obj_add_flag(sidebar.search_container, LV_OBJ_FLAG_HIDDEN);
     
+    // Hide cursor in editor while sidebar is open
+    if (editor.textarea) {
+        lv_obj_set_style_border_opa(editor.textarea, LV_OPA_TRANSP, LV_PART_CURSOR);
+        lv_obj_set_style_border_opa(editor.textarea, LV_OPA_TRANSP, LV_PART_CURSOR | LV_STATE_FOCUSED);
+    }
+    
     scan_txt_files(sidebar, editor.user_files_dir);
     scan_deleted_files(sidebar, editor.recently_deleted_dir);
     filter_sidebar_files(sidebar);
     refresh_file_list_ui(sidebar, editor);
     
     lv_obj_clear_flag(sidebar.sidebar_obj, LV_OBJ_FLAG_HIDDEN);
+    
+    sidebar.animating = true;
+    sidebar.anim_start_time = lv_tick_get();
     
     lv_anim_t a;
     lv_anim_init(&a);
@@ -175,6 +191,15 @@ void hide_sidebar(SidebarState& sidebar, EditorState& editor) {
     sidebar.searching = false;
     sidebar.renaming = false;
     sidebar.rename_pending = false;
+    
+    // Restore cursor in editor
+    if (editor.textarea) {
+        lv_obj_set_style_border_opa(editor.textarea, LV_OPA_COVER, LV_PART_CURSOR);
+        lv_obj_set_style_border_opa(editor.textarea, LV_OPA_COVER, LV_PART_CURSOR | LV_STATE_FOCUSED);
+    }
+    
+    sidebar.animating = true;
+    sidebar.anim_start_time = lv_tick_get();
     
     lv_anim_t a;
     lv_anim_init(&a);
@@ -209,6 +234,7 @@ void update_sidebar_theme(SidebarState& sidebar, bool dark) {
     
     if (sidebar.file_list) {
         lv_obj_set_style_bg_color(sidebar.file_list, theme.sidebar_bg, 0);
+        lv_obj_set_style_bg_color(sidebar.file_list, theme.text_dim, LV_PART_SCROLLBAR);
     }
 }
 
@@ -315,6 +341,8 @@ void refresh_file_list_ui(SidebarState& sidebar, EditorState& editor) {
         }
     }
     
+    lv_obj_t* selected_btn = nullptr;
+    
     // Regular files
     for (int i = 0; i < (int)sidebar.filtered_file_list.size(); i++) {
         const std::string& filename = sidebar.filtered_file_list[i];
@@ -324,30 +352,50 @@ void refresh_file_list_ui(SidebarState& sidebar, EditorState& editor) {
         lv_obj_set_user_data(file_btn, (void*)(intptr_t)i);
         
         bool is_selected = (!sidebar.new_file_selected && i == sidebar.selected_index);
+        if (is_selected) {
+            selected_btn = file_btn;
+        }
         lv_obj_set_style_bg_color(file_btn, 
             is_selected ? theme.sidebar_selected : theme.sidebar_btn_normal, 0);
         lv_obj_set_style_bg_color(file_btn, theme.sidebar_btn_hover, LV_STATE_PRESSED);
         lv_obj_set_style_radius(file_btn, 4, 0);
         lv_obj_add_event_cb(file_btn, file_btn_click_cb, LV_EVENT_CLICKED, nullptr);
         
-        lv_obj_t* label = lv_label_create(file_btn);
-        
-        // Show rename buffer if renaming this file
-        std::string display_name;
+        // Show textarea if renaming this file, otherwise show label
         if (!sidebar.searching && sidebar.renaming && i == sidebar.rename_file_index) {
-            display_name = std::string(sidebar.rename_buffer, sidebar.rename_len);
+            lv_obj_t* ta = lv_textarea_create(file_btn);
+            lv_obj_set_size(ta, LV_PCT(100) - 16, 28);
+            lv_obj_align(ta, LV_ALIGN_LEFT_MID, 4, 0);
+            lv_textarea_set_one_line(ta, true);
+            lv_textarea_set_text(ta, sidebar.rename_buffer);
+            lv_textarea_set_cursor_pos(ta, LV_TEXTAREA_CURSOR_LAST);
+            lv_obj_set_style_bg_color(ta, theme.sidebar_selected, 0);
+            lv_obj_set_style_bg_opa(ta, LV_OPA_COVER, 0);
+            lv_obj_set_style_border_width(ta, 0, 0);
+            lv_obj_set_style_text_color(ta, theme.sidebar_btn_text, 0);
+            lv_obj_set_style_text_font(ta, &lv_font_montserrat_16, 0);
+            lv_obj_set_style_pad_left(ta, 4, 0);
+            lv_obj_set_style_pad_right(ta, 4, 0);
+            lv_obj_set_style_border_color(ta, theme.sidebar_btn_text, LV_PART_CURSOR);
+            lv_obj_set_style_border_opa(ta, LV_OPA_COVER, LV_PART_CURSOR);
+            lv_obj_set_style_border_width(ta, 2, LV_PART_CURSOR);
+            lv_obj_set_style_border_side(ta, LV_BORDER_SIDE_LEFT, LV_PART_CURSOR);
+            lv_obj_set_style_bg_opa(ta, LV_OPA_TRANSP, LV_PART_CURSOR);
+            sidebar.rename_textarea = ta;
         } else {
-            display_name = filename;
+            lv_obj_t* label = lv_label_create(file_btn);
+            
+            std::string display_name = filename;
             if (display_name.size() > 4 && display_name.substr(display_name.size() - 4) == ".txt") {
                 display_name = display_name.substr(0, display_name.size() - 4);
             }
+            
+            lv_label_set_text(label, display_name.c_str());
+            lv_label_set_long_mode(label, LV_LABEL_LONG_CLIP);
+            lv_obj_set_style_text_color(label, theme.sidebar_btn_text, 0);
+            lv_obj_set_style_text_font(label, &lv_font_montserrat_16, 0);
+            lv_obj_align(label, LV_ALIGN_LEFT_MID, 8, 0);
         }
-        
-        lv_label_set_text(label, display_name.c_str());
-        lv_label_set_long_mode(label, LV_LABEL_LONG_CLIP);
-        lv_obj_set_style_text_color(label, theme.sidebar_btn_text, 0);
-        lv_obj_set_style_text_font(label, &lv_font_montserrat_16, 0);
-        lv_obj_align(label, LV_ALIGN_LEFT_MID, 8, 0);
     }
     
     // Recently deleted files section (only shown when searching)
@@ -372,6 +420,9 @@ void refresh_file_list_ui(SidebarState& sidebar, EditorState& editor) {
             lv_obj_set_user_data(file_btn, (void*)(intptr_t)adjusted_index);
             
             bool is_selected = (!sidebar.new_file_selected && adjusted_index == sidebar.selected_index);
+            if (is_selected) {
+                selected_btn = file_btn;
+            }
             lv_obj_set_style_bg_color(file_btn, 
                 is_selected ? theme.sidebar_selected : theme.sidebar_btn_normal, 0);
             lv_obj_set_style_bg_color(file_btn, theme.sidebar_btn_hover, LV_STATE_PRESSED);
@@ -389,6 +440,11 @@ void refresh_file_list_ui(SidebarState& sidebar, EditorState& editor) {
             lv_obj_set_style_text_font(label, &lv_font_montserrat_16, 0);
             lv_obj_align(label, LV_ALIGN_LEFT_MID, 8, 0);
         }
+    }
+    
+    // Scroll selected item into view
+    if (selected_btn) {
+        lv_obj_scroll_to_view(selected_btn, LV_ANIM_OFF);
     }
 }
 
@@ -745,20 +801,8 @@ void handle_sidebar_text_input(SidebarState& sidebar, EditorState& editor, const
             filter_sidebar_files(sidebar);
             refresh_file_list_ui(sidebar, editor);
         }
-    } else if (sidebar.renaming) {
-        // Text input goes to rename
-        char c = text[0];
-        if (c >= 32 && c < 127) {
-            if (sidebar.rename_len < (int)sizeof(sidebar.rename_buffer) - 1) {
-                sidebar.rename_buffer[sidebar.rename_len] = c;
-                sidebar.rename_len++;
-                sidebar.rename_buffer[sidebar.rename_len] = '\0';
-                sidebar.rename_pending = true;
-                sidebar.rename_change_time = lv_tick_get();
-                refresh_file_list_ui(sidebar, editor);
-            }
-        }
     }
+    // Renaming now uses a textarea, so text input is handled by LVGL
 }
 
 void handle_sidebar_backspace(SidebarState& sidebar, EditorState& editor) {
@@ -771,22 +815,9 @@ void handle_sidebar_backspace(SidebarState& sidebar, EditorState& editor) {
             filter_sidebar_files(sidebar);
             refresh_file_list_ui(sidebar, editor);
         }
-    } else if (sidebar.renaming) {
-        // Backspace removes from rename
-        if (sidebar.rename_len > 0) {
-            sidebar.rename_len--;
-            sidebar.rename_buffer[sidebar.rename_len] = '\0';
-            sidebar.rename_pending = true;
-            sidebar.rename_change_time = lv_tick_get();
-            refresh_file_list_ui(sidebar, editor);
-        }
-        if (sidebar.rename_len == 0) {
-            sidebar.renaming = false;
-            sidebar.rename_pending = false;
-            refresh_file_list_ui(sidebar, editor);
-        }
     }
-    // If not searching or renaming, backspace does nothing (no file deletion)
+    // Renaming now uses a textarea, so backspace is handled by LVGL
+    // If not searching, backspace does nothing (no file deletion)
 }
 
 void start_rename(SidebarState& sidebar, EditorState& editor) {
@@ -796,6 +827,7 @@ void start_rename(SidebarState& sidebar, EditorState& editor) {
     
     sidebar.renaming = true;
     sidebar.rename_file_index = sidebar.selected_index;
+    sidebar.rename_textarea = nullptr;
     
     // Initialize rename buffer with current filename (without .txt)
     std::string filename = sidebar.filtered_file_list[sidebar.selected_index];
@@ -809,47 +841,65 @@ void start_rename(SidebarState& sidebar, EditorState& editor) {
     refresh_file_list_ui(sidebar, editor);
 }
 
-void process_rename_save(SidebarState& sidebar, EditorState& editor, uint32_t debounce_delay) {
-    if (!sidebar.rename_pending) return;
+void commit_rename(SidebarState& sidebar, EditorState& editor) {
+    if (!sidebar.renaming || !sidebar.rename_textarea) return;
     
-    uint32_t now = lv_tick_get();
-    if (now - sidebar.rename_change_time < debounce_delay) return;
+    const char* new_name = lv_textarea_get_text(sidebar.rename_textarea);
+    if (!new_name || strlen(new_name) == 0) {
+        cancel_rename(sidebar, editor);
+        return;
+    }
     
-    sidebar.rename_pending = false;
-    
-    if (!sidebar.renaming || sidebar.rename_len == 0) return;
     if (sidebar.rename_file_index < 0 || 
-        sidebar.rename_file_index >= (int)sidebar.file_list_items.size()) return;
+        sidebar.rename_file_index >= (int)sidebar.file_list_items.size()) {
+        cancel_rename(sidebar, editor);
+        return;
+    }
     
     std::string old_filename = sidebar.file_list_items[sidebar.rename_file_index];
     std::string old_path = editor.user_files_dir + "/" + old_filename;
     
-    std::string new_filename = std::string(sidebar.rename_buffer, sidebar.rename_len);
+    std::string new_filename = new_name;
     if (new_filename.size() < 4 || new_filename.substr(new_filename.size() - 4) != ".txt") {
         new_filename += ".txt";
     }
     std::string new_path = editor.user_files_dir + "/" + new_filename;
     
-    if (old_path == new_path) return;
-    
-    std::ifstream test(new_path);
-    if (test.good()) {
-        test.close();
-        return;
+    if (old_path != new_path) {
+        std::ifstream test(new_path);
+        if (!test.good()) {
+            std::rename(old_path.c_str(), new_path.c_str());
+            
+            bool was_current_file = (editor.current_file_path == old_path);
+            sidebar.file_list_items[sidebar.rename_file_index] = new_filename;
+            
+            if (was_current_file) {
+                editor.current_file_path = new_path;
+                editor.temp_file_path = new_path + ".tmp";
+                update_filename_display(editor);
+            }
+        }
     }
     
-    std::rename(old_path.c_str(), new_path.c_str());
-    
-    bool was_current_file = (editor.current_file_path == old_path);
-    
-    sidebar.file_list_items[sidebar.rename_file_index] = new_filename;
-    
-    if (was_current_file) {
-        editor.current_file_path = new_path;
-        editor.temp_file_path = new_path + ".tmp";
-        update_filename_display(editor);
-    }
+    sidebar.renaming = false;
+    sidebar.rename_pending = false;
+    sidebar.rename_textarea = nullptr;
     
     filter_sidebar_files(sidebar);
     refresh_file_list_ui(sidebar, editor);
+}
+
+void cancel_rename(SidebarState& sidebar, EditorState& editor) {
+    sidebar.renaming = false;
+    sidebar.rename_pending = false;
+    sidebar.rename_textarea = nullptr;
+    refresh_file_list_ui(sidebar, editor);
+}
+
+void process_rename_save(SidebarState& sidebar, EditorState& editor, uint32_t debounce_delay) {
+    // This function is now unused since we use commit_rename on Enter press
+    // Kept for API compatibility
+    (void)sidebar;
+    (void)editor;
+    (void)debounce_delay;
 }
