@@ -1,6 +1,7 @@
 #include "app.h"
 #include "editor.h"
 #include "sidebar.h"
+#include "sidebar_file_dialog.h"
 #include "search.h"
 #include "theme.h"
 #include "file_manager.h"
@@ -507,6 +508,18 @@ static void handle_sidebar_keyboard() {
     uint32_t now = lv_tick_get();
     bool nav_debounce = (now - last_nav_time) > 120;
     
+    if (g_sidebar.file_dialog_active) {
+        handle_file_dialog_keyboard(g_sidebar, g_editor);
+        return;
+    }
+    
+    // Skip processing for a short time after file dialog closes
+    // to prevent Enter key from triggering sidebar actions
+    if (g_sidebar.file_dialog_close_time > 0 && 
+        (now - g_sidebar.file_dialog_close_time) < 200) {
+        return;
+    }
+    
     // Handle Ctrl+F to toggle search
     if (ctrl && nav_debounce && kb_state[SDL_SCANCODE_F]) {
         last_nav_time = now;
@@ -570,21 +583,22 @@ static void handle_sidebar_keyboard() {
         return;
     }
     
-    int regular_count = (int)g_sidebar.filtered_file_list.size();
+    // Build display items first to get accurate count
+    g_sidebar.folder_data.build_display_items(g_sidebar.searching);
+    int display_count = (int)g_sidebar.folder_data.display_items.size();
     int deleted_count = g_sidebar.searching ? (int)g_sidebar.filtered_deleted_list.size() : 0;
-    int total_count = regular_count + deleted_count;
+    int total_count = display_count + deleted_count;
     
     if (nav_debounce) {
         if (kb_state[SDL_SCANCODE_UP]) {
             last_nav_time = now;
             if (g_sidebar.renaming) {
-                // Remove rename textarea from group before cancelling
                 if (g_sidebar.rename_textarea) {
                     lv_group_remove_obj(g_sidebar.rename_textarea);
                 }
                 cancel_rename(g_sidebar, g_editor);
             }
-            if (g_sidebar.new_file_selected) {
+            if (g_sidebar.new_folder_selected || g_sidebar.new_file_selected) {
                 // Already at top, do nothing
             } else if (g_sidebar.selected_index == 0) {
                 if (!g_sidebar.searching) {
@@ -600,13 +614,16 @@ static void handle_sidebar_keyboard() {
         if (kb_state[SDL_SCANCODE_DOWN]) {
             last_nav_time = now;
             if (g_sidebar.renaming) {
-                // Remove rename textarea from group before cancelling
                 if (g_sidebar.rename_textarea) {
                     lv_group_remove_obj(g_sidebar.rename_textarea);
                 }
                 cancel_rename(g_sidebar, g_editor);
             }
-            if (g_sidebar.new_file_selected) {
+            if (g_sidebar.new_folder_selected) {
+                g_sidebar.new_folder_selected = false;
+                g_sidebar.selected_index = 0;
+                refresh_file_list_ui(g_sidebar, g_editor);
+            } else if (g_sidebar.new_file_selected) {
                 g_sidebar.new_file_selected = false;
                 g_sidebar.selected_index = 0;
                 refresh_file_list_ui(g_sidebar, g_editor);
@@ -616,12 +633,27 @@ static void handle_sidebar_keyboard() {
             }
         }
         
-        // Right arrow to start rename (only if not searching)
-        if (kb_state[SDL_SCANCODE_RIGHT] && !g_sidebar.searching && !g_sidebar.new_file_selected) {
-            last_nav_time = now;
-            if (!g_sidebar.renaming) {
+        // Left arrow: navigate from new_file to new_folder
+        if (kb_state[SDL_SCANCODE_LEFT] && !g_sidebar.searching && !g_sidebar.renaming) {
+            if (g_sidebar.new_file_selected) {
+                last_nav_time = now;
+                g_sidebar.new_file_selected = false;
+                g_sidebar.new_folder_selected = true;
+                refresh_file_list_ui(g_sidebar, g_editor);
+            }
+        }
+        
+        // Right arrow: navigate from new_folder to new_file, or start rename on file/folder
+        if (kb_state[SDL_SCANCODE_RIGHT] && !g_sidebar.searching) {
+            if (g_sidebar.new_folder_selected) {
+                last_nav_time = now;
+                g_sidebar.new_folder_selected = false;
+                g_sidebar.new_file_selected = true;
+                refresh_file_list_ui(g_sidebar, g_editor);
+            } else if (!g_sidebar.new_file_selected && !g_sidebar.renaming && 
+                       g_sidebar.selected_index >= 0 && g_sidebar.selected_index < display_count) {
+                last_nav_time = now;
                 start_rename(g_sidebar, g_editor);
-                // Add rename textarea to group and focus it
                 if (g_sidebar.rename_textarea) {
                     lv_group_add_obj(g_input_group, g_sidebar.rename_textarea);
                     lv_group_focus_obj(g_sidebar.rename_textarea);
@@ -629,32 +661,86 @@ static void handle_sidebar_keyboard() {
             }
         }
         
+        // Tab key: toggle folder open/close, or open move/rename dialog for files
+        if (kb_state[SDL_SCANCODE_TAB] && !g_sidebar.searching && !g_sidebar.renaming && 
+            !g_sidebar.new_file_selected && !g_sidebar.new_folder_selected) {
+            last_nav_time = now;
+            if (g_sidebar.selected_index >= 0 && g_sidebar.selected_index < display_count) {
+                const SidebarItem& item = g_sidebar.folder_data.display_items[g_sidebar.selected_index];
+                if (item.is_folder()) {
+                    // Toggle folder expansion (collapsed_folders tracks closed folders)
+                    if (g_sidebar.folder_data.collapsed_folders.find(item.name) != 
+                        g_sidebar.folder_data.collapsed_folders.end()) {
+                        g_sidebar.folder_data.collapsed_folders.erase(item.name);
+                    } else {
+                        g_sidebar.folder_data.collapsed_folders.insert(item.name);
+                    }
+                    g_editor.state_pending_save = true;
+                    g_editor.state_change_time = lv_tick_get();
+                    refresh_file_list_ui(g_sidebar, g_editor);
+                } else {
+                    show_file_dialog(g_sidebar, g_editor, 1);
+                    // Add the name input to the input group and focus it
+                    if (g_sidebar.file_dialog_name_input) {
+                        lv_group_add_obj(g_input_group, g_sidebar.file_dialog_name_input);
+                        lv_group_focus_obj(g_sidebar.file_dialog_name_input);
+                    }
+                }
+            }
+            return;
+        }
+        
         if (kb_state[SDL_SCANCODE_RETURN] || kb_state[SDL_SCANCODE_KP_ENTER]) {
             last_nav_time = now;
             if (g_sidebar.renaming) {
-                // Remove rename textarea from group before committing
                 if (g_sidebar.rename_textarea) {
                     lv_group_remove_obj(g_sidebar.rename_textarea);
                 }
                 commit_rename(g_sidebar, g_editor);
+            } else if (g_sidebar.new_folder_selected) {
+                create_folder(g_editor.user_files_dir);
+                scan_folders_and_files(g_sidebar.folder_data, g_editor.user_files_dir);
+                filter_folder_entries(g_sidebar.folder_data, std::string(g_sidebar.search_buffer, g_sidebar.search_len));
+                refresh_file_list_ui(g_sidebar, g_editor);
             } else if (g_sidebar.new_file_selected) {
-                create_new_file(g_sidebar, g_editor);
-                focus_editor_textarea();
-            } else if (g_sidebar.selected_index >= regular_count && g_sidebar.searching) {
-                // Selected a deleted file - show restore dialog
-                int deleted_index = g_sidebar.selected_index - regular_count;
+                show_file_dialog(g_sidebar, g_editor, 0);
+                // Add the name input to the input group and focus it
+                if (g_sidebar.file_dialog_name_input) {
+                    lv_group_add_obj(g_input_group, g_sidebar.file_dialog_name_input);
+                    lv_group_focus_obj(g_sidebar.file_dialog_name_input);
+                }
+            } else if (g_sidebar.selected_index >= display_count && g_sidebar.searching) {
+                int deleted_index = g_sidebar.selected_index - display_count;
                 show_restore_dialog(g_sidebar, g_editor, deleted_index);
-            } else if (g_sidebar.selected_index >= 0 && g_sidebar.selected_index < regular_count) {
-                switch_to_file(g_sidebar, g_editor, g_sidebar.filtered_file_list[g_sidebar.selected_index]);
-                hide_sidebar(g_sidebar, g_editor);
-                focus_editor_textarea();
+            } else if (g_sidebar.selected_index >= 0 && g_sidebar.selected_index < display_count) {
+                const SidebarItem& item = g_sidebar.folder_data.display_items[g_sidebar.selected_index];
+                if (item.is_file()) {
+                    SidebarFileEntry entry;
+                    entry.filename = item.name;
+                    entry.folder = item.folder;
+                    switch_to_file_entry(g_sidebar, g_editor, entry);
+                    hide_sidebar(g_sidebar, g_editor);
+                    focus_editor_textarea();
+                } else {
+                    // Toggle folder expansion on Enter (collapsed_folders tracks closed folders)
+                    if (g_sidebar.folder_data.collapsed_folders.find(item.name) != 
+                        g_sidebar.folder_data.collapsed_folders.end()) {
+                        g_sidebar.folder_data.collapsed_folders.erase(item.name);
+                    } else {
+                        g_sidebar.folder_data.collapsed_folders.insert(item.name);
+                    }
+                    g_editor.state_pending_save = true;
+                    g_editor.state_change_time = lv_tick_get();
+                    refresh_file_list_ui(g_sidebar, g_editor);
+                }
             }
         }
         
-        // Delete key shows delete dialog (only if not searching or renaming)
+        // Delete key shows delete dialog (for files and folders)
         if (kb_state[SDL_SCANCODE_DELETE] && !g_sidebar.searching && !g_sidebar.renaming) {
             last_nav_time = now;
-            if (!g_sidebar.new_file_selected && g_sidebar.selected_index >= 0 && g_sidebar.selected_index < regular_count) {
+            if (!g_sidebar.new_file_selected && !g_sidebar.new_folder_selected &&
+                g_sidebar.selected_index >= 0 && g_sidebar.selected_index < display_count) {
                 show_delete_dialog(g_sidebar, g_editor, g_sidebar.selected_index);
             }
         }
@@ -662,7 +748,6 @@ static void handle_sidebar_keyboard() {
         if (kb_state[SDL_SCANCODE_ESCAPE]) {
             last_nav_time = now;
             if (g_sidebar.renaming) {
-                // Remove rename textarea from group before cancelling
                 if (g_sidebar.rename_textarea) {
                     lv_group_remove_obj(g_sidebar.rename_textarea);
                 }
@@ -728,12 +813,17 @@ static void handle_shortcuts() {
     bool debounce = (now - last_key_time) > 150;
     
     if (meta_pressed && !last_meta) {
-        toggle_sidebar(g_sidebar, g_editor);
-        if (g_sidebar.visible) {
-            // Focus sidebar search to remove focus from editor
-            focus_sidebar_search();
-        } else {
+        if (g_sidebar.file_dialog_active) {
+            hide_file_dialog(g_sidebar);
+            hide_sidebar(g_sidebar, g_editor);
             focus_editor_textarea();
+        } else {
+            toggle_sidebar(g_sidebar, g_editor);
+            if (g_sidebar.visible) {
+                focus_sidebar_search();
+            } else {
+                focus_editor_textarea();
+            }
         }
     }
     
@@ -883,6 +973,7 @@ bool init_app(App& app) {
     
     std::string file_to_load;
     load_editor_state(g_editor, state_file_path, default_file_path, file_to_load);
+    load_collapsed_folders(state_file_path, g_sidebar.folder_data.collapsed_folders);
     
     create_editor_ui(g_editor, app.screen);
     set_search_input_callback(g_editor, search_input_event_cb, nullptr);
@@ -906,7 +997,7 @@ void shutdown_app(App& app) {
         save_editor_content(g_editor);
     }
     if (g_editor.state_pending_save) {
-        save_editor_state(g_editor);
+        save_editor_state(g_editor, g_sidebar.folder_data.collapsed_folders);
     }
     
     if (g_input_group) {
@@ -1007,29 +1098,48 @@ void run_app(App& app) {
                 }
                 // When sidebar is visible, handle keyboard input ourselves
                 if (g_sidebar.visible) {
-                    // Handle backspace for search (renaming uses LVGL textarea)
-                    if (wait_event.key.keysym.sym == SDLK_BACKSPACE) {
-                        if (g_sidebar.searching) {
-                            handle_sidebar_backspace(g_sidebar, g_editor);
+                    // If file dialog is active, handle input appropriately
+                    if (g_sidebar.file_dialog_active) {
+                        // When text field is selected (selection == 0), let LVGL handle text input
+                        // but consume Enter and Delete keys to prevent sidebar actions
+                        // Note: Backspace is NOT consumed so LVGL textarea can delete characters
+                        if (g_sidebar.file_dialog_selection == 0) {
+                            if (wait_event.key.keysym.sym == SDLK_RETURN || 
+                                wait_event.key.keysym.sym == SDLK_KP_ENTER ||
+                                wait_event.key.keysym.sym == SDLK_DELETE) {
+                                consumed = true;
+                            }
+                            // Don't consume other keys - let LVGL textarea handle input
+                        } else {
+                            // For dropdown and buttons, consume input
+                            consumed = true;
                         }
-                    }
-                    // Handle DELETE key for file deletion (also handle BACKSPACE on Mac when not searching/renaming)
-                    if (wait_event.key.keysym.sym == SDLK_DELETE ||
-                        (wait_event.key.keysym.sym == SDLK_BACKSPACE && !g_sidebar.searching && !g_sidebar.renaming)) {
-                        if (!g_sidebar.searching && !g_sidebar.renaming && 
-                            !g_sidebar.confirm_delete && !g_sidebar.confirm_restore) {
-                            int regular_count = (int)g_sidebar.filtered_file_list.size();
-                            if (!g_sidebar.new_file_selected && 
-                                g_sidebar.selected_index >= 0 && 
-                                g_sidebar.selected_index < regular_count) {
-                                show_delete_dialog(g_sidebar, g_editor, g_sidebar.selected_index);
+                    } else {
+                        // Handle backspace for search (renaming uses LVGL textarea)
+                        if (wait_event.key.keysym.sym == SDLK_BACKSPACE) {
+                            if (g_sidebar.searching) {
+                                handle_sidebar_backspace(g_sidebar, g_editor);
                             }
                         }
-                    }
-                    // Consume keyboard events when sidebar is visible, except when renaming
-                    // (rename textarea needs to receive input from LVGL)
-                    if (!g_sidebar.renaming) {
-                        consumed = true;
+                        // Handle DELETE key for file deletion (also handle BACKSPACE on Mac when not searching/renaming)
+                        if (wait_event.key.keysym.sym == SDLK_DELETE ||
+                            (wait_event.key.keysym.sym == SDLK_BACKSPACE && !g_sidebar.searching && !g_sidebar.renaming)) {
+                            if (!g_sidebar.searching && !g_sidebar.renaming && 
+                                !g_sidebar.confirm_delete && !g_sidebar.confirm_restore) {
+                                g_sidebar.folder_data.build_display_items(g_sidebar.searching);
+                                int display_count = (int)g_sidebar.folder_data.display_items.size();
+                                if (!g_sidebar.new_file_selected && !g_sidebar.new_folder_selected &&
+                                    g_sidebar.selected_index >= 0 && 
+                                    g_sidebar.selected_index < display_count) {
+                                    show_delete_dialog(g_sidebar, g_editor, g_sidebar.selected_index);
+                                }
+                            }
+                        }
+                        // Consume keyboard events when sidebar is visible, except when renaming
+                        // (rename textarea needs to receive input from LVGL)
+                        if (!g_sidebar.renaming) {
+                            consumed = true;
+                        }
                     }
                 }
             }
@@ -1044,8 +1154,13 @@ void run_app(App& app) {
                 if (g_sidebar.visible) {
                     if (g_sidebar.searching || g_sidebar.renaming) {
                         handle_sidebar_text_input(g_sidebar, g_editor, wait_event.text.text);
+                        consumed = true;
+                    } else if (g_sidebar.file_dialog_active && g_sidebar.file_dialog_selection == 0) {
+                        // Let LVGL handle text input for file dialog name field
+                        consumed = false;
+                    } else {
+                        consumed = true;
                     }
-                    consumed = true;
                 }
             }
             
@@ -1066,7 +1181,7 @@ void run_app(App& app) {
         handle_text_selection();
         handle_clipboard();
         
-        process_pending_saves(g_editor, DEBOUNCE_DELAY);
+        process_pending_saves(g_editor, DEBOUNCE_DELAY, g_sidebar.folder_data.collapsed_folders);
         process_rename_save(g_sidebar, g_editor, RENAME_DEBOUNCE_DELAY);
     }
 }

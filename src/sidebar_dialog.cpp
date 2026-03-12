@@ -68,10 +68,16 @@ static lv_obj_t* create_confirmation_dialog(
 }
 
 void show_delete_dialog(SidebarState& sidebar, EditorState& editor, int index) {
-    if (index < 0 || index >= (int)sidebar.filtered_file_list.size()) return;
+    sidebar.folder_data.build_display_items(sidebar.searching);
+    if (index < 0 || index >= (int)sidebar.folder_data.display_items.size()) return;
+    
+    const SidebarItem& item = sidebar.folder_data.display_items[index];
     
     sidebar.confirm_delete = true;
     sidebar.delete_index = index;
+    sidebar.delete_item_name = item.name;
+    sidebar.delete_item_folder = item.folder;
+    sidebar.delete_item_is_folder = item.is_folder();
     sidebar.dialog_selection = 1;  // Default to Cancel
     
     const Theme& theme = get_theme(editor.dark_theme);
@@ -80,16 +86,22 @@ void show_delete_dialog(SidebarState& sidebar, EditorState& editor, int index) {
         lv_obj_delete(sidebar.delete_dialog);
     }
     
-    std::string filename = sidebar.filtered_file_list[index];
-    if (filename.size() > 4 && filename.substr(filename.size() - 4) == ".txt") {
-        filename = filename.substr(0, filename.size() - 4);
+    std::string display_name = item.name;
+    if (item.is_file() && display_name.size() > 4 && display_name.substr(display_name.size() - 4) == ".txt") {
+        display_name = display_name.substr(0, display_name.size() - 4);
     }
-    std::string msg = "Delete \"" + filename + "\"?";
+    
+    std::string msg;
+    if (item.is_folder()) {
+        msg = "Delete folder \"" + display_name + "\"?\nAll files inside will be deleted.";
+    } else {
+        msg = "Delete \"" + display_name + "\"?";
+    }
     
     sidebar.delete_dialog = create_confirmation_dialog(
         lv_scr_act(),
         theme,
-        280, 120,
+        280, item.is_folder() ? 140 : 120,
         msg.c_str(),
         "Delete",
         theme.sidebar_delete,
@@ -104,6 +116,9 @@ void show_delete_dialog(SidebarState& sidebar, EditorState& editor, int index) {
 void hide_delete_dialog(SidebarState& sidebar) {
     sidebar.confirm_delete = false;
     sidebar.delete_index = -1;
+    sidebar.delete_item_name.clear();
+    sidebar.delete_item_folder.clear();
+    sidebar.delete_item_is_folder = false;
     
     if (sidebar.delete_dialog) {
         lv_obj_delete(sidebar.delete_dialog);

@@ -90,10 +90,7 @@ void create_editor_ui(EditorState& state, lv_obj_t* parent) {
     lv_obj_set_style_pad_hor(state.search_container, 8, 0);
     lv_obj_add_flag(state.search_container, LV_OBJ_FLAG_HIDDEN);
     
-    lv_obj_t* search_icon = lv_label_create(state.search_container);
-    lv_label_set_text(search_icon, LV_SYMBOL_EYE_OPEN);
-    lv_obj_set_style_text_color(search_icon, theme.text_dim, 0);
-    lv_obj_set_style_text_font(search_icon, &lv_font_montserrat_14, 0);
+    create_magnifying_glass_icon(state.search_icon, state.search_container, 16, theme.text_dim);
     
     state.search_input = lv_textarea_create(state.search_container);
     lv_obj_set_size(state.search_input, 160, 22);
@@ -102,6 +99,11 @@ void create_editor_ui(EditorState& state, lv_obj_t* parent) {
     lv_textarea_set_text_selection(state.search_input, true);
     lv_obj_set_style_bg_opa(state.search_input, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(state.search_input, 0, 0);
+    lv_obj_set_style_border_width(state.search_input, 0, LV_STATE_FOCUSED);
+    lv_obj_set_style_border_width(state.search_input, 0, LV_STATE_FOCUS_KEY);
+    lv_obj_set_style_outline_width(state.search_input, 0, 0);
+    lv_obj_set_style_outline_width(state.search_input, 0, LV_STATE_FOCUSED);
+    lv_obj_set_style_outline_width(state.search_input, 0, LV_STATE_FOCUS_KEY);
     lv_obj_set_style_text_color(state.search_input, theme.search_input_text, 0);
     lv_obj_set_style_text_font(state.search_input, &lv_font_montserrat_16, 0);
     lv_obj_set_style_border_color(state.search_input, theme.search_input_text, LV_PART_CURSOR);
@@ -123,49 +125,8 @@ void create_editor_ui(EditorState& state, lv_obj_t* parent) {
     lv_obj_set_style_text_color(state.word_count_label, theme.text_dim, 0);
     lv_obj_set_style_text_font(state.word_count_label, &lv_font_montserrat_18, 0);
     
-    // Battery icon (30x14 body + 3x6 tip)
-    const int batt_width = 30;
-    const int batt_height = 14;
-    const int batt_tip_width = 3;
-    const int batt_tip_height = 6;
-    
-    state.battery_container = lv_obj_create(state.status_bar);
-    lv_obj_remove_style_all(state.battery_container);
-    lv_obj_set_size(state.battery_container, batt_width + batt_tip_width + 2, batt_height);
-    lv_obj_clear_flag(state.battery_container, LV_OBJ_FLAG_SCROLLABLE);
-    
-    // Battery body (outline)
-    state.battery_body = lv_obj_create(state.battery_container);
-    lv_obj_remove_style_all(state.battery_body);
-    lv_obj_set_size(state.battery_body, batt_width, batt_height);
-    lv_obj_set_pos(state.battery_body, 0, 0);
-    lv_obj_set_style_border_width(state.battery_body, 1, 0);
-    lv_obj_set_style_border_color(state.battery_body, theme.battery_border, 0);
-    lv_obj_set_style_radius(state.battery_body, 2, 0);
-    lv_obj_set_style_bg_opa(state.battery_body, LV_OPA_TRANSP, 0);
-    lv_obj_clear_flag(state.battery_body, LV_OBJ_FLAG_SCROLLABLE);
-    
-    // Battery fill (inside body)
-    state.battery_fill = lv_obj_create(state.battery_body);
-    lv_obj_remove_style_all(state.battery_fill);
-    int fill_width = (batt_width - 4) * state.battery_percent / 100;
-    lv_obj_set_size(state.battery_fill, fill_width, batt_height - 4);
-    lv_obj_set_pos(state.battery_fill, 2, 2);
-    lv_obj_set_style_bg_color(state.battery_fill, 
-        state.battery_percent > 20 ? theme.battery_good : theme.battery_low, 0);
-    lv_obj_set_style_bg_opa(state.battery_fill, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(state.battery_fill, 0, 0);
-    lv_obj_clear_flag(state.battery_fill, LV_OBJ_FLAG_SCROLLABLE);
-    
-    // Battery tip (right side nub)
-    state.battery_tip = lv_obj_create(state.battery_container);
-    lv_obj_remove_style_all(state.battery_tip);
-    lv_obj_set_size(state.battery_tip, batt_tip_width, batt_tip_height);
-    lv_obj_set_pos(state.battery_tip, batt_width, (batt_height - batt_tip_height) / 2);
-    lv_obj_set_style_bg_color(state.battery_tip, theme.battery_border, 0);
-    lv_obj_set_style_bg_opa(state.battery_tip, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(state.battery_tip, 0, 0);
-    lv_obj_clear_flag(state.battery_tip, LV_OBJ_FLAG_SCROLLABLE);
+    lv_color_t fill_color = state.battery.percent > 20 ? theme.battery_good : theme.battery_low;
+    create_battery_icon(state.battery, state.status_bar, state.battery.percent, theme.battery_border, fill_color);
     
     state.textarea = lv_textarea_create(main_container);
     lv_obj_set_size(state.textarea, LV_PCT(100), LV_PCT(100));
@@ -179,6 +140,11 @@ void create_editor_ui(EditorState& state, lv_obj_t* parent) {
     lv_obj_set_style_text_color(state.textarea, theme.edit_text, 0);
     lv_obj_set_style_text_font(state.textarea, get_font_for_size_index(state.font_size_index), 0);
     lv_obj_set_style_border_width(state.textarea, 0, 0);
+    lv_obj_set_style_border_width(state.textarea, 0, LV_STATE_FOCUSED);
+    lv_obj_set_style_border_width(state.textarea, 0, LV_STATE_FOCUS_KEY);
+    lv_obj_set_style_outline_width(state.textarea, 0, 0);
+    lv_obj_set_style_outline_width(state.textarea, 0, LV_STATE_FOCUSED);
+    lv_obj_set_style_outline_width(state.textarea, 0, LV_STATE_FOCUS_KEY);
     lv_obj_set_style_radius(state.textarea, 0, 0);
     lv_obj_set_style_pad_all(state.textarea, 10, 0);
     
@@ -237,6 +203,11 @@ void load_file_into_editor(EditorState& state, const char* file_path) {
 }
 
 void save_editor_content(EditorState& state) {
+    // Don't save if no file is open (e.g., after deleting the current file)
+    if (state.current_file_path.empty() || state.temp_file_path.empty()) {
+        return;
+    }
+    
     const char* text = lv_textarea_get_text(state.textarea);
     
     std::ofstream outfile(state.temp_file_path, std::ios::binary | std::ios::trunc);
@@ -250,7 +221,7 @@ void save_editor_content(EditorState& state) {
     }
 }
 
-void save_editor_state(EditorState& state) {
+void save_editor_state(EditorState& state, const std::set<std::string>& collapsed_folders) {
     std::string temp_state_path = state.state_file_path + ".tmp";
     std::ofstream state_out(temp_state_path);
     if (state_out) {
@@ -258,10 +229,36 @@ void save_editor_state(EditorState& state) {
         state_out << lv_textarea_get_cursor_pos(state.textarea) << "\n";
         state_out << state.font_size_index << "\n";
         state_out << (state.dark_theme ? 1 : 0) << "\n";
+        state_out << collapsed_folders.size() << "\n";
+        for (const auto& folder : collapsed_folders) {
+            state_out << folder << "\n";
+        }
         bool write_success = state_out.good();
         state_out.close();
         if (write_success) {
             std::rename(temp_state_path.c_str(), state.state_file_path.c_str());
+        }
+    }
+}
+
+void load_collapsed_folders(const std::string& state_file_path, std::set<std::string>& collapsed_folders) {
+    collapsed_folders.clear();
+    std::ifstream state_in(state_file_path);
+    if (!state_in) return;
+    
+    std::string line;
+    std::getline(state_in, line);  // current_file_path
+    std::getline(state_in, line);  // cursor_pos
+    std::getline(state_in, line);  // font_size_index
+    std::getline(state_in, line);  // dark_theme
+    
+    int folder_count = 0;
+    if (state_in >> folder_count) {
+        state_in.ignore();  // skip newline
+        for (int i = 0; i < folder_count; i++) {
+            if (std::getline(state_in, line) && !line.empty()) {
+                collapsed_folders.insert(line);
+            }
         }
     }
 }
@@ -323,15 +320,13 @@ void update_editor_theme(EditorState& state, bool dark) {
         lv_obj_set_style_bg_opa(state.search_input, LV_OPA_TRANSP, LV_PART_CURSOR | LV_STATE_FOCUSED);
     }
     
-    if (state.battery_body) {
-        lv_obj_set_style_border_color(state.battery_body, theme.battery_border, 0);
+    if (state.search_icon.canvas) {
+        update_magnifying_glass_icon_color(state.search_icon, theme.text_dim);
     }
-    if (state.battery_tip) {
-        lv_obj_set_style_bg_color(state.battery_tip, theme.battery_border, 0);
-    }
-    if (state.battery_fill) {
-        lv_obj_set_style_bg_color(state.battery_fill, 
-            state.battery_percent > 20 ? theme.battery_good : theme.battery_low, 0);
+    
+    if (state.battery.body) {
+        lv_color_t fill_color = state.battery.percent > 20 ? theme.battery_good : theme.battery_low;
+        update_battery_icon_theme(state.battery, theme.battery_border, fill_color);
     }
 }
 
@@ -346,28 +341,54 @@ void update_word_count(EditorState& state) {
 
 void update_filename_display(EditorState& state) {
     std::string display_name;
-    size_t last_slash = state.current_file_path.find_last_of('/');
-    if (last_slash != std::string::npos) {
-        display_name = state.current_file_path.substr(last_slash + 1);
-    } else {
-        display_name = state.current_file_path;
-    }
     
-    if (display_name.size() > 4 && display_name.substr(display_name.size() - 4) == ".txt") {
-        display_name = display_name.substr(0, display_name.size() - 4);
+    std::string user_files_dir = state.user_files_dir;
+    if (state.current_file_path.find(user_files_dir) == 0) {
+        std::string relative = state.current_file_path.substr(user_files_dir.size());
+        if (!relative.empty() && relative[0] == '/') {
+            relative = relative.substr(1);
+        }
+        
+        size_t slash_pos = relative.find('/');
+        if (slash_pos != std::string::npos) {
+            std::string folder = relative.substr(0, slash_pos);
+            std::string filename = relative.substr(slash_pos + 1);
+            
+            if (filename.size() > 4 && filename.substr(filename.size() - 4) == ".txt") {
+                filename = filename.substr(0, filename.size() - 4);
+            }
+            
+            display_name = folder + " / " + filename;
+        } else {
+            display_name = relative;
+            if (display_name.size() > 4 && display_name.substr(display_name.size() - 4) == ".txt") {
+                display_name = display_name.substr(0, display_name.size() - 4);
+            }
+        }
+    } else {
+        size_t last_slash = state.current_file_path.find_last_of('/');
+        if (last_slash != std::string::npos) {
+            display_name = state.current_file_path.substr(last_slash + 1);
+        } else {
+            display_name = state.current_file_path;
+        }
+        
+        if (display_name.size() > 4 && display_name.substr(display_name.size() - 4) == ".txt") {
+            display_name = display_name.substr(0, display_name.size() - 4);
+        }
     }
     
     lv_label_set_text(state.filename_label, display_name.c_str());
 }
 
-void process_pending_saves(EditorState& state, uint32_t debounce_delay) {
+void process_pending_saves(EditorState& state, uint32_t debounce_delay, const std::set<std::string>& collapsed_folders) {
     uint32_t now = lv_tick_get();
     if (state.content_pending_save && (now - state.content_change_time >= debounce_delay)) {
         save_editor_content(state);
         state.content_pending_save = false;
     }
     if (state.state_pending_save && (now - state.state_change_time >= debounce_delay)) {
-        save_editor_state(state);
+        save_editor_state(state, collapsed_folders);
         state.state_pending_save = false;
     }
 }
@@ -381,12 +402,6 @@ void set_search_input_callback(EditorState& state, lv_event_cb_t cb, void* user_
 void update_battery_display(EditorState& state) {
     const Theme& theme = get_theme(state.dark_theme);
     
-    const int batt_width = 30;
-    
-    int fill_width = (batt_width - 4) * state.battery_percent / 100;
-    if (fill_width < 0) fill_width = 0;
-    
-    lv_obj_set_width(state.battery_fill, fill_width);
-    lv_obj_set_style_bg_color(state.battery_fill, 
-        state.battery_percent > 20 ? theme.battery_good : theme.battery_low, 0);
+    lv_color_t fill_color = state.battery.percent > 20 ? theme.battery_good : theme.battery_low;
+    update_battery_icon(state.battery, state.battery.percent, fill_color);
 }

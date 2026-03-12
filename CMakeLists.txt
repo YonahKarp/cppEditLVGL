@@ -5,6 +5,8 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+option(BUILD_TESTS "Build tests" ON)
+
 # Find SDL2
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(SDL2 REQUIRED sdl2)
@@ -35,9 +37,17 @@ add_executable(justtype_lvgl
     src/editor.cpp
     src/sidebar.cpp
     src/sidebar_dialog.cpp
+    src/sidebar_folder.cpp
+    src/sidebar_file.cpp
+    src/sidebar_file_utils.cpp
+    src/sidebar_file_dialog.cpp
     src/search.cpp
     src/file_manager.cpp
     src/text_navigation.cpp
+    src/icons/battery_icon.cpp
+    src/icons/magnifying_glass_icon.cpp
+    src/icons/add_document_icon.cpp
+    src/icons/add_folder_icon.cpp
 )
 
 target_include_directories(justtype_lvgl PRIVATE
@@ -55,3 +65,26 @@ target_link_directories(justtype_lvgl PRIVATE ${SDL2_LIBRARY_DIRS})
 target_link_libraries(justtype_lvgl PRIVATE ${SDL2_LIBRARIES})
 
 target_compile_options(justtype_lvgl PRIVATE ${SDL2_CFLAGS_OTHER})
+
+# Testing
+if(BUILD_TESTS)
+    include(FetchContent)
+    FetchContent_Declare(
+        googletest
+        URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.zip
+    )
+    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(googletest)
+
+    enable_testing()
+
+    add_executable(test_text_navigation
+        tests/test_text_navigation.cpp
+        src/text_navigation.cpp
+    )
+    target_include_directories(test_text_navigation PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_link_libraries(test_text_navigation GTest::gtest_main)
+
+    include(GoogleTest)
+    gtest_discover_tests(test_text_navigation)
+endif()
