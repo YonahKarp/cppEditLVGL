@@ -1157,16 +1157,23 @@ void run_app(App& app) {
             
             // Handle text input - intercept when sidebar is visible
             if (wait_event.type == platform::PlatformEvent::Type::TextInput) {
-                if (g_sidebar.visible) {
-                    if (g_sidebar.searching || g_sidebar.renaming) {
-                        handle_sidebar_text_input(g_sidebar, g_editor, wait_event.text);
-                        consumed = true;
-                    } else if (g_sidebar.file_dialog_active && g_sidebar.file_dialog_selection == 0) {
-                        // Let LVGL handle text input for file dialog name field
-                        consumed = false;
-                    } else {
-                        consumed = true;
+                if (g_sidebar.visible && (g_sidebar.searching || g_sidebar.renaming)) {
+                    handle_sidebar_text_input(g_sidebar, g_editor, wait_event.text);
+                    consumed = true;
+                } else {
+                    lv_obj_t* focused = lv_group_get_focused(g_input_group);
+                    if (focused && lv_obj_check_type(focused, &lv_textarea_class) && wait_event.text[0] != '\0') {
+                        if (has_selection(focused)) {
+                            delete_selected_text(focused);
+                        }
+                        lv_textarea_add_text(focused, wait_event.text);
+                        if (focused == g_editor.textarea) {
+                            g_editor.content_pending_save = true;
+                            g_editor.content_change_time = lv_tick_get();
+                            update_word_count(g_editor);
+                        }
                     }
+                    consumed = true;
                 }
             }
             

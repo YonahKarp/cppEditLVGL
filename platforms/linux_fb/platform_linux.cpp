@@ -30,7 +30,10 @@ std::string g_clipboard;
 #if defined(__linux__)
 int g_evdev_fd = -1;
 bool g_evdev_grabbed = false;
+bool g_caps_lock = false;
 std::array<bool, KEY_MAX + 1> g_key_state {};
+PlatformEvent g_pending_text_event {};
+bool g_has_pending_text_event = false;
 
 bool g_termios_saved = false;
 termios g_original_termios {};
@@ -101,6 +104,83 @@ bool key_bit_is_set(const unsigned long* key_bits, int key_code) {
     return ((key_bits[word] >> bit) & 1UL) != 0;
 }
 
+char shifted_digit_symbol(uint16_t code) {
+    switch (code) {
+        case KEY_1: return '!';
+        case KEY_2: return '@';
+        case KEY_3: return '#';
+        case KEY_4: return '$';
+        case KEY_5: return '%';
+        case KEY_6: return '^';
+        case KEY_7: return '&';
+        case KEY_8: return '*';
+        case KEY_9: return '(';
+        case KEY_0: return ')';
+        default: return '\0';
+    }
+}
+
+char keycode_to_ascii(uint16_t code, bool shift, bool caps_lock) {
+    if (code >= KEY_A && code <= KEY_Z) {
+        char base = static_cast<char>('a' + (code - KEY_A));
+        bool upper = shift ^ caps_lock;
+        return upper ? static_cast<char>(base - 'a' + 'A') : base;
+    }
+
+    if (code >= KEY_1 && code <= KEY_0) {
+        if (shift) {
+            return shifted_digit_symbol(code);
+        }
+        if (code == KEY_0) {
+            return '0';
+        }
+        return static_cast<char>('1' + (code - KEY_1));
+    }
+
+    switch (code) {
+        case KEY_SPACE: return ' ';
+        case KEY_MINUS: return shift ? '_' : '-';
+        case KEY_EQUAL: return shift ? '+' : '=';
+        case KEY_LEFTBRACE: return shift ? '{' : '[';
+        case KEY_RIGHTBRACE: return shift ? '}' : ']';
+        case KEY_BACKSLASH: return shift ? '|' : '\\';
+        case KEY_SEMICOLON: return shift ? ':' : ';';
+        case KEY_APOSTROPHE: return shift ? '"' : '\'';
+        case KEY_GRAVE: return shift ? '~' : '`';
+        case KEY_COMMA: return shift ? '<' : ',';
+        case KEY_DOT: return shift ? '>' : '.';
+        case KEY_SLASH: return shift ? '?' : '/';
+        case KEY_KP0: return '0';
+        case KEY_KP1: return '1';
+        case KEY_KP2: return '2';
+        case KEY_KP3: return '3';
+        case KEY_KP4: return '4';
+        case KEY_KP5: return '5';
+        case KEY_KP6: return '6';
+        case KEY_KP7: return '7';
+        case KEY_KP8: return '8';
+        case KEY_KP9: return '9';
+        case KEY_KPDOT: return '.';
+        case KEY_KPSLASH: return '/';
+        case KEY_KPASTERISK: return '*';
+        case KEY_KPMINUS: return '-';
+        case KEY_KPPLUS: return '+';
+        default: return '\0';
+    }
+}
+
+void queue_text_event(char ch) {
+    if (ch == '\0') {
+        return;
+    }
+
+    g_pending_text_event = {};
+    g_pending_text_event.type = PlatformEvent::Type::TextInput;
+    g_pending_text_event.text[0] = ch;
+    g_pending_text_event.text[1] = '\0';
+    g_has_pending_text_event = true;
+}
+
 bool device_looks_like_keyboard(int fd) {
     std::array<unsigned long, (KEY_MAX / (sizeof(unsigned long) * 8)) + 1> key_bits {};
     if (ioctl(fd, EVIOCGBIT(EV_KEY, sizeof(key_bits)), key_bits.data()) < 0) {
@@ -164,6 +244,10 @@ void restore_terminal_mode() {
 
 bool init(int32_t, int32_t) {
 #if defined(__linux__)
+    g_caps_lock = false;
+    g_pending_text_event = {};
+    g_has_pending_text_event = false;
+
     const char* fb_file = std::getenv("JUSTTYPE_FBDEV");
     const char* evdev_from_env = std::getenv("JUSTTYPE_EVDEV");
     if (!fb_file) {
@@ -211,6 +295,9 @@ bool init(int32_t, int32_t) {
 
 void shutdown() {
 #if defined(__linux__)
+    g_pending_text_event = {};
+    g_has_pending_text_event = false;
+
     if (g_evdev_fd >= 0) {
         if (g_evdev_grabbed) {
             int release = 0;
@@ -239,6 +326,13 @@ bool poll_event(PlatformEvent& event, uint32_t timeout_ms) {
     event = {};
 
 #if defined(__linux__)
+    if (g_has_pending_text_event) {
+        event = g_pending_text_event;
+        g_pending_text_event = {};
+        g_has_pending_text_event = false;
+        return true;
+    }
+
     if (g_evdev_fd < 0) {
         sleep_timeout(timeout_ms);
         return false;
@@ -264,6 +358,10 @@ bool poll_event(PlatformEvent& event, uint32_t timeout_ms) {
         return true;
     }
 
+    if (input.code == KEY_CAPSLOCK && input.value == 1) {
+        g_caps_lock = !g_caps_lock;
+    }
+
     if (input.code <= KEY_MAX) {
         g_key_state[input.code] = input.value != 0;
     }
@@ -272,6 +370,12 @@ bool poll_event(PlatformEvent& event, uint32_t timeout_ms) {
     event.modifiers = current_modifiers();
     event.repeat = input.value == 2;
     event.type = (input.value == 0) ? PlatformEvent::Type::KeyUp : PlatformEvent::Type::KeyDown;
+
+    if (input.value != 0) {
+        char ch = keycode_to_ascii(input.code, event.modifiers.shift, g_caps_lock);
+        queue_text_event(ch);
+    }
+
     return true;
 #else
     (void)timeout_ms;
