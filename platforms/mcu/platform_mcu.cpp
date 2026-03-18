@@ -1,6 +1,8 @@
 #include "platform.h"
 
 #include <cstdlib>
+#include <cstring>
+#include <string>
 
 #include "lvgl.h"
 
@@ -9,6 +11,7 @@ namespace {
 
 lv_display_t* g_display = nullptr;
 lv_indev_t* g_keyboard = nullptr;
+std::string g_clipboard;
 
 }  // namespace
 
@@ -19,6 +22,7 @@ bool init(int32_t, int32_t) {
 }
 
 void shutdown() {
+    g_clipboard.clear();
 }
 
 lv_display_t* get_display() {
@@ -49,12 +53,18 @@ bool is_key_pressed(KeyCode) {
     return false;
 }
 
-bool clipboard_set(const char*) {
-    return false;
+bool clipboard_set(const char* text) {
+    g_clipboard = text ? text : "";
+    return true;
 }
 
 char* clipboard_get() {
-    return nullptr;
+    char* text = static_cast<char*>(std::malloc(g_clipboard.size() + 1));
+    if (!text) {
+        return nullptr;
+    }
+    std::memcpy(text, g_clipboard.c_str(), g_clipboard.size() + 1);
+    return text;
 }
 
 void clipboard_free(char* text) {
