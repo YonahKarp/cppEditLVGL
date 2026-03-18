@@ -8,10 +8,13 @@
 
 #if defined(__linux__)
 #include <array>
-#include <poll.h>
-#include <unistd.h>
+#include <cstdio>
 #include <fcntl.h>
 #include <linux/input.h>
+#include <poll.h>
+#include <sys/ioctl.h>
+#include <termios.h>
+#include <unistd.h>
 
 #include "src/drivers/display/fb/lv_linux_fbdev.h"
 #include "src/drivers/evdev/lv_evdev.h"
@@ -26,7 +29,13 @@ std::string g_clipboard;
 
 #if defined(__linux__)
 int g_evdev_fd = -1;
+bool g_evdev_grabbed = false;
 std::array<bool, KEY_MAX + 1> g_key_state {};
+
+bool g_termios_saved = false;
+termios g_original_termios {};
+
+constexpr int kMaxEventDevices = 32;
 
 KeyCode linux_key_to_keycode(uint16_t code) {
     switch (code) {
@@ -84,6 +93,71 @@ void sleep_timeout(uint32_t timeout_ms) {
     struct pollfd fd {};
     (void)poll(&fd, 0, static_cast<int>(timeout_ms));
 }
+
+bool key_bit_is_set(const unsigned long* key_bits, int key_code) {
+    constexpr int bits_per_long = static_cast<int>(sizeof(unsigned long) * 8);
+    int word = key_code / bits_per_long;
+    int bit = key_code % bits_per_long;
+    return ((key_bits[word] >> bit) & 1UL) != 0;
+}
+
+bool device_looks_like_keyboard(int fd) {
+    std::array<unsigned long, (KEY_MAX / (sizeof(unsigned long) * 8)) + 1> key_bits {};
+    if (ioctl(fd, EVIOCGBIT(EV_KEY, sizeof(key_bits)), key_bits.data()) < 0) {
+        return false;
+    }
+
+    return key_bit_is_set(key_bits.data(), KEY_A) &&
+           key_bit_is_set(key_bits.data(), KEY_Z) &&
+           key_bit_is_set(key_bits.data(), KEY_ENTER) &&
+           key_bit_is_set(key_bits.data(), KEY_SPACE);
+}
+
+std::string detect_keyboard_evdev() {
+    for (int i = 0; i < kMaxEventDevices; ++i) {
+        char path[64];
+        std::snprintf(path, sizeof(path), "/dev/input/event%d", i);
+
+        int fd = open(path, O_RDONLY | O_NONBLOCK);
+        if (fd < 0) {
+            continue;
+        }
+
+        bool is_keyboard = device_looks_like_keyboard(fd);
+        close(fd);
+        if (is_keyboard) {
+            return std::string(path);
+        }
+    }
+
+    return "";
+}
+
+void set_terminal_raw_mode() {
+    if (!isatty(STDIN_FILENO)) {
+        return;
+    }
+
+    if (tcgetattr(STDIN_FILENO, &g_original_termios) != 0) {
+        return;
+    }
+
+    termios raw = g_original_termios;
+    raw.c_lflag &= static_cast<tcflag_t>(~(ICANON | ECHO));
+    raw.c_cc[VMIN] = 0;
+    raw.c_cc[VTIME] = 0;
+
+    if (tcsetattr(STDIN_FILENO, TCSANOW, &raw) == 0) {
+        g_termios_saved = true;
+    }
+}
+
+void restore_terminal_mode() {
+    if (g_termios_saved) {
+        tcsetattr(STDIN_FILENO, TCSANOW, &g_original_termios);
+        g_termios_saved = false;
+    }
+}
 #endif
 
 }  // namespace
@@ -91,12 +165,19 @@ void sleep_timeout(uint32_t timeout_ms) {
 bool init(int32_t, int32_t) {
 #if defined(__linux__)
     const char* fb_file = std::getenv("JUSTTYPE_FBDEV");
-    const char* evdev_file = std::getenv("JUSTTYPE_EVDEV");
+    const char* evdev_from_env = std::getenv("JUSTTYPE_EVDEV");
     if (!fb_file) {
         fb_file = "/dev/fb0";
     }
-    if (!evdev_file) {
-        evdev_file = "/dev/input/event0";
+
+    std::string evdev_path;
+    if (evdev_from_env && evdev_from_env[0] != '\0') {
+        evdev_path = evdev_from_env;
+    } else {
+        evdev_path = detect_keyboard_evdev();
+        if (evdev_path.empty()) {
+            evdev_path = "/dev/input/event0";
+        }
     }
 
     g_display = lv_linux_fbdev_create();
@@ -105,12 +186,23 @@ bool init(int32_t, int32_t) {
     }
     lv_linux_fbdev_set_file(g_display, fb_file);
 
-    g_keyboard = lv_evdev_create(LV_INDEV_TYPE_KEYPAD, evdev_file);
-    g_evdev_fd = open(evdev_file, O_RDONLY | O_NONBLOCK);
+    g_keyboard = lv_evdev_create(LV_INDEV_TYPE_KEYPAD, evdev_path.c_str());
+    g_evdev_fd = open(evdev_path.c_str(), O_RDONLY | O_NONBLOCK);
     if (g_evdev_fd < 0) {
         std::memset(g_key_state.data(), 0, g_key_state.size() * sizeof(bool));
+        std::fprintf(stderr, "Warning: unable to open keyboard device '%s'\n", evdev_path.c_str());
+    } else {
+        int grab = 1;
+        if (ioctl(g_evdev_fd, EVIOCGRAB, grab) == 0) {
+            g_evdev_grabbed = true;
+        }
     }
 
+    if (!g_keyboard) {
+        std::fprintf(stderr, "Warning: lv_evdev_create failed for '%s'\n", evdev_path.c_str());
+    }
+
+    set_terminal_raw_mode();
     return true;
 #else
     return false;
@@ -120,9 +212,15 @@ bool init(int32_t, int32_t) {
 void shutdown() {
 #if defined(__linux__)
     if (g_evdev_fd >= 0) {
+        if (g_evdev_grabbed) {
+            int release = 0;
+            (void)ioctl(g_evdev_fd, EVIOCGRAB, release);
+            g_evdev_grabbed = false;
+        }
         close(g_evdev_fd);
         g_evdev_fd = -1;
     }
+    restore_terminal_mode();
 #endif
     g_display = nullptr;
     g_keyboard = nullptr;
