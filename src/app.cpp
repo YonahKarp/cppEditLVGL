@@ -6,13 +6,13 @@
 #include "theme.h"
 #include "file_manager.h"
 #include "text_navigation.h"
+#include "platform.h"
 #include <fstream>
 #include <cstdio>
 #include <sys/stat.h>
 #include <string>
 
 #include "lvgl.h"
-#include <SDL2/SDL.h>
 
 static EditorState g_editor;
 static SidebarState g_sidebar;
@@ -197,9 +197,9 @@ static bool has_selection(lv_obj_t* textarea) {
 }
 
 static void handle_clipboard() {
-    const uint8_t* kb_state = SDL_GetKeyboardState(nullptr);
-    bool ctrl = kb_state[SDL_SCANCODE_LCTRL] || kb_state[SDL_SCANCODE_RCTRL];
-    bool cmd = kb_state[SDL_SCANCODE_LGUI] || kb_state[SDL_SCANCODE_RGUI];
+    platform::KeyModifiers modifiers = platform::get_key_modifiers();
+    bool ctrl = modifiers.ctrl;
+    bool cmd = modifiers.meta;
     
     if (!ctrl && !cmd) return;
     if (g_sidebar.visible) return;
@@ -213,20 +213,20 @@ static void handle_clipboard() {
     if (!focused || !lv_obj_check_type(focused, &lv_textarea_class)) return;
     
     // Copy (Ctrl+C or Cmd+C)
-    if (kb_state[SDL_SCANCODE_C]) {
+    if (platform::is_key_pressed(platform::KeyCode::C)) {
         last_clipboard_time = now;
         std::string selected = get_selected_text(focused);
         if (!selected.empty()) {
-            SDL_SetClipboardText(selected.c_str());
+            platform::clipboard_set(selected.c_str());
         }
     }
     
     // Cut (Ctrl+X or Cmd+X)
-    if (kb_state[SDL_SCANCODE_X]) {
+    if (platform::is_key_pressed(platform::KeyCode::X)) {
         last_clipboard_time = now;
         std::string selected = get_selected_text(focused);
         if (!selected.empty()) {
-            SDL_SetClipboardText(selected.c_str());
+            platform::clipboard_set(selected.c_str());
             delete_selected_text(focused);
             
             if (focused == g_editor.textarea) {
@@ -238,9 +238,9 @@ static void handle_clipboard() {
     }
     
     // Paste (Ctrl+V or Cmd+V)
-    if (kb_state[SDL_SCANCODE_V]) {
+    if (platform::is_key_pressed(platform::KeyCode::V)) {
         last_clipboard_time = now;
-        char* clipboard = SDL_GetClipboardText();
+        char* clipboard = platform::clipboard_get();
         if (clipboard && strlen(clipboard) > 0) {
             // Delete any selected text first
             if (has_selection(focused)) {
@@ -256,15 +256,15 @@ static void handle_clipboard() {
                 update_word_count(g_editor);
             }
         }
-        SDL_free(clipboard);
+        platform::clipboard_free(clipboard);
     }
 }
 
 static void handle_text_selection() {
-    const uint8_t* kb_state = SDL_GetKeyboardState(nullptr);
-    bool shift = kb_state[SDL_SCANCODE_LSHIFT] || kb_state[SDL_SCANCODE_RSHIFT];
-    bool ctrl = kb_state[SDL_SCANCODE_LCTRL] || kb_state[SDL_SCANCODE_RCTRL];
-    bool alt = kb_state[SDL_SCANCODE_LALT] || kb_state[SDL_SCANCODE_RALT];
+    platform::KeyModifiers modifiers = platform::get_key_modifiers();
+    bool shift = modifiers.shift;
+    bool ctrl = modifiers.ctrl;
+    bool alt = modifiers.alt;
     
     static int32_t last_cursor_pos = -1;
     static bool last_shift = false;
@@ -300,7 +300,7 @@ static void handle_text_selection() {
     bool nav_debounce = (now - last_nav_time) > 100;
     
     // Handle Ctrl+Backspace (delete previous word, or delete selection if present)
-    bool ctrl_backspace = ctrl && kb_state[SDL_SCANCODE_BACKSPACE] && focused == g_editor.textarea;
+    bool ctrl_backspace = ctrl && platform::is_key_pressed(platform::KeyCode::Backspace) && focused == g_editor.textarea;
     if (ctrl_backspace_state.should_act(ctrl_backspace, now)) {
         if (has_selection(focused)) {
             delete_selected_text(focused);
@@ -324,8 +324,8 @@ static void handle_text_selection() {
     if (ctrl_backspace) return;
     
     // Handle Ctrl+Left/Right (word navigation) with key repeat
-    bool ctrl_left = ctrl && !shift && !alt && kb_state[SDL_SCANCODE_LEFT];
-    bool ctrl_right = ctrl && !shift && !alt && kb_state[SDL_SCANCODE_RIGHT];
+    bool ctrl_left = ctrl && !shift && !alt && platform::is_key_pressed(platform::KeyCode::Left);
+    bool ctrl_right = ctrl && !shift && !alt && platform::is_key_pressed(platform::KeyCode::Right);
     
     if (ctrl_left_state.should_act(ctrl_left, now)) {
         int32_t new_pos = find_prev_word_start(text, cur_pos);
@@ -342,8 +342,8 @@ static void handle_text_selection() {
     if (ctrl_left || ctrl_right) return;
     
     // Handle Alt+Left/Right (line start/end) with key repeat
-    bool alt_left = alt && !shift && !ctrl && kb_state[SDL_SCANCODE_LEFT];
-    bool alt_right = alt && !shift && !ctrl && kb_state[SDL_SCANCODE_RIGHT];
+    bool alt_left = alt && !shift && !ctrl && platform::is_key_pressed(platform::KeyCode::Left);
+    bool alt_right = alt && !shift && !ctrl && platform::is_key_pressed(platform::KeyCode::Right);
     
     if (alt_left_state.should_act(alt_left, now)) {
         int32_t new_pos = find_line_start(text, cur_pos);
@@ -361,13 +361,13 @@ static void handle_text_selection() {
     
     // Handle Alt+Up/Down (jump to top/bottom of document)
     if (alt && !shift && !ctrl && nav_debounce) {
-        if (kb_state[SDL_SCANCODE_UP]) {
+        if (platform::is_key_pressed(platform::KeyCode::Up)) {
             last_nav_time = now;
             lv_textarea_set_cursor_pos(focused, 0);
             g_selection_start = -1;
             return;
         }
-        if (kb_state[SDL_SCANCODE_DOWN]) {
+        if (platform::is_key_pressed(platform::KeyCode::Down)) {
             last_nav_time = now;
             lv_textarea_set_cursor_pos(focused, text_len);
             g_selection_start = -1;
@@ -376,8 +376,8 @@ static void handle_text_selection() {
     }
     
     // Handle Ctrl+Up/Down (jump to previous/next paragraph) with key repeat
-    bool ctrl_up = ctrl && !shift && !alt && kb_state[SDL_SCANCODE_UP];
-    bool ctrl_down = ctrl && !shift && !alt && kb_state[SDL_SCANCODE_DOWN];
+    bool ctrl_up = ctrl && !shift && !alt && platform::is_key_pressed(platform::KeyCode::Up);
+    bool ctrl_down = ctrl && !shift && !alt && platform::is_key_pressed(platform::KeyCode::Down);
     
     if (ctrl_up_state.should_act(ctrl_up, now)) {
         int32_t new_pos = find_paragraph_start(text, cur_pos);
@@ -392,8 +392,8 @@ static void handle_text_selection() {
     }
     
     // Handle Ctrl+Shift+Up/Down (extend selection to previous/next paragraph) with key repeat
-    bool ctrl_shift_up = ctrl && shift && !alt && kb_state[SDL_SCANCODE_UP];
-    bool ctrl_shift_down = ctrl && shift && !alt && kb_state[SDL_SCANCODE_DOWN];
+    bool ctrl_shift_up = ctrl && shift && !alt && platform::is_key_pressed(platform::KeyCode::Up);
+    bool ctrl_shift_down = ctrl && shift && !alt && platform::is_key_pressed(platform::KeyCode::Down);
     
     if (ctrl_shift_up_state.should_act(ctrl_shift_up, now)) {
         if (g_selection_start < 0) g_selection_start = cur_pos;
@@ -423,9 +423,9 @@ static void handle_text_selection() {
         return;
     }
     
-    bool any_arrow = kb_state[SDL_SCANCODE_LEFT] || kb_state[SDL_SCANCODE_RIGHT] ||
-                     kb_state[SDL_SCANCODE_UP] || kb_state[SDL_SCANCODE_DOWN] ||
-                     kb_state[SDL_SCANCODE_HOME] || kb_state[SDL_SCANCODE_END];
+    bool any_arrow = platform::is_key_pressed(platform::KeyCode::Left) || platform::is_key_pressed(platform::KeyCode::Right) ||
+                     platform::is_key_pressed(platform::KeyCode::Up) || platform::is_key_pressed(platform::KeyCode::Down) ||
+                     platform::is_key_pressed(platform::KeyCode::Home) || platform::is_key_pressed(platform::KeyCode::End);
     
     // Only clear selection when moving cursor WITHOUT shift
     if (!shift && any_arrow) {
@@ -502,8 +502,7 @@ static void keyboard_event_cb(lv_event_t* e) {
 static void handle_sidebar_keyboard() {
     if (!g_sidebar.visible) return;
     
-    const uint8_t* kb_state = SDL_GetKeyboardState(nullptr);
-    bool ctrl = kb_state[SDL_SCANCODE_LCTRL] || kb_state[SDL_SCANCODE_RCTRL];
+    bool ctrl = platform::get_key_modifiers().ctrl;
     static uint32_t last_nav_time = 0;
     uint32_t now = lv_tick_get();
     bool nav_debounce = (now - last_nav_time) > 120;
@@ -521,7 +520,7 @@ static void handle_sidebar_keyboard() {
     }
     
     // Handle Ctrl+F to toggle search
-    if (ctrl && nav_debounce && kb_state[SDL_SCANCODE_F]) {
+    if (ctrl && nav_debounce && platform::is_key_pressed(platform::KeyCode::F)) {
         last_nav_time = now;
         toggle_sidebar_search(g_sidebar, g_editor);
         return;
@@ -530,24 +529,24 @@ static void handle_sidebar_keyboard() {
     // Handle restore dialog
     if (g_sidebar.confirm_restore) {
         if (nav_debounce) {
-            if (kb_state[SDL_SCANCODE_LEFT]) {
+            if (platform::is_key_pressed(platform::KeyCode::Left)) {
                 last_nav_time = now;
                 g_sidebar.dialog_selection = 0;
                 update_restore_dialog_selection(g_sidebar, g_editor);
             }
             
-            if (kb_state[SDL_SCANCODE_RIGHT]) {
+            if (platform::is_key_pressed(platform::KeyCode::Right)) {
                 last_nav_time = now;
                 g_sidebar.dialog_selection = 1;
                 update_restore_dialog_selection(g_sidebar, g_editor);
             }
             
-            if (kb_state[SDL_SCANCODE_RETURN] || kb_state[SDL_SCANCODE_KP_ENTER]) {
+            if (platform::is_key_pressed(platform::KeyCode::Enter)) {
                 last_nav_time = now;
                 confirm_restore_action(g_sidebar, g_editor);
             }
             
-            if (kb_state[SDL_SCANCODE_ESCAPE]) {
+            if (platform::is_key_pressed(platform::KeyCode::Escape)) {
                 last_nav_time = now;
                 hide_restore_dialog(g_sidebar);
             }
@@ -558,24 +557,24 @@ static void handle_sidebar_keyboard() {
     // Handle delete dialog
     if (g_sidebar.confirm_delete) {
         if (nav_debounce) {
-            if (kb_state[SDL_SCANCODE_LEFT]) {
+            if (platform::is_key_pressed(platform::KeyCode::Left)) {
                 last_nav_time = now;
                 g_sidebar.dialog_selection = 0;
                 update_delete_dialog_selection(g_sidebar, g_editor);
             }
             
-            if (kb_state[SDL_SCANCODE_RIGHT]) {
+            if (platform::is_key_pressed(platform::KeyCode::Right)) {
                 last_nav_time = now;
                 g_sidebar.dialog_selection = 1;
                 update_delete_dialog_selection(g_sidebar, g_editor);
             }
             
-            if (kb_state[SDL_SCANCODE_RETURN] || kb_state[SDL_SCANCODE_KP_ENTER]) {
+            if (platform::is_key_pressed(platform::KeyCode::Enter)) {
                 last_nav_time = now;
                 confirm_delete_action(g_sidebar, g_editor);
             }
             
-            if (kb_state[SDL_SCANCODE_ESCAPE]) {
+            if (platform::is_key_pressed(platform::KeyCode::Escape)) {
                 last_nav_time = now;
                 hide_delete_dialog(g_sidebar);
             }
@@ -590,7 +589,7 @@ static void handle_sidebar_keyboard() {
     int total_count = display_count + deleted_count;
     
     if (nav_debounce) {
-        if (kb_state[SDL_SCANCODE_UP]) {
+        if (platform::is_key_pressed(platform::KeyCode::Up)) {
             last_nav_time = now;
             if (g_sidebar.renaming) {
                 if (g_sidebar.rename_textarea) {
@@ -611,7 +610,7 @@ static void handle_sidebar_keyboard() {
             }
         }
         
-        if (kb_state[SDL_SCANCODE_DOWN]) {
+        if (platform::is_key_pressed(platform::KeyCode::Down)) {
             last_nav_time = now;
             if (g_sidebar.renaming) {
                 if (g_sidebar.rename_textarea) {
@@ -634,7 +633,7 @@ static void handle_sidebar_keyboard() {
         }
         
         // Left arrow: navigate from new_file to new_folder
-        if (kb_state[SDL_SCANCODE_LEFT] && !g_sidebar.searching && !g_sidebar.renaming) {
+        if (platform::is_key_pressed(platform::KeyCode::Left) && !g_sidebar.searching && !g_sidebar.renaming) {
             if (g_sidebar.new_file_selected) {
                 last_nav_time = now;
                 g_sidebar.new_file_selected = false;
@@ -644,7 +643,7 @@ static void handle_sidebar_keyboard() {
         }
         
         // Right arrow: navigate from new_folder to new_file, or start rename on file/folder
-        if (kb_state[SDL_SCANCODE_RIGHT] && !g_sidebar.searching) {
+        if (platform::is_key_pressed(platform::KeyCode::Right) && !g_sidebar.searching) {
             if (g_sidebar.new_folder_selected) {
                 last_nav_time = now;
                 g_sidebar.new_folder_selected = false;
@@ -662,7 +661,7 @@ static void handle_sidebar_keyboard() {
         }
         
         // Tab key: toggle folder open/close, or open move/rename dialog for files
-        if (kb_state[SDL_SCANCODE_TAB] && !g_sidebar.searching && !g_sidebar.renaming && 
+        if (platform::is_key_pressed(platform::KeyCode::Tab) && !g_sidebar.searching && !g_sidebar.renaming && 
             !g_sidebar.new_file_selected && !g_sidebar.new_folder_selected) {
             last_nav_time = now;
             if (g_sidebar.selected_index >= 0 && g_sidebar.selected_index < display_count) {
@@ -690,7 +689,7 @@ static void handle_sidebar_keyboard() {
             return;
         }
         
-        if (kb_state[SDL_SCANCODE_RETURN] || kb_state[SDL_SCANCODE_KP_ENTER]) {
+        if (platform::is_key_pressed(platform::KeyCode::Enter)) {
             last_nav_time = now;
             if (g_sidebar.renaming) {
                 if (g_sidebar.rename_textarea) {
@@ -737,7 +736,7 @@ static void handle_sidebar_keyboard() {
         }
         
         // Delete key shows delete dialog (for files and folders)
-        if (kb_state[SDL_SCANCODE_DELETE] && !g_sidebar.searching && !g_sidebar.renaming) {
+        if (platform::is_key_pressed(platform::KeyCode::Delete) && !g_sidebar.searching && !g_sidebar.renaming) {
             last_nav_time = now;
             if (!g_sidebar.new_file_selected && !g_sidebar.new_folder_selected &&
                 g_sidebar.selected_index >= 0 && g_sidebar.selected_index < display_count) {
@@ -745,7 +744,7 @@ static void handle_sidebar_keyboard() {
             }
         }
         
-        if (kb_state[SDL_SCANCODE_ESCAPE]) {
+        if (platform::is_key_pressed(platform::KeyCode::Escape)) {
             last_nav_time = now;
             if (g_sidebar.renaming) {
                 if (g_sidebar.rename_textarea) {
@@ -765,7 +764,6 @@ static void handle_sidebar_keyboard() {
 static void handle_search_navigation() {
     if (!g_search.active) return;
     
-    const uint8_t* kb_state = SDL_GetKeyboardState(nullptr);
     static uint32_t last_nav_time = 0;
     uint32_t now = lv_tick_get();
     bool debounce = (now - last_nav_time) > 150;
@@ -773,7 +771,7 @@ static void handle_search_navigation() {
     if (!debounce) return;
     
     // Handle ESC to close search
-    if (kb_state[SDL_SCANCODE_ESCAPE]) {
+    if (platform::is_key_pressed(platform::KeyCode::Escape)) {
         last_nav_time = now;
         close_search(g_search);
         lv_obj_add_flag(g_editor.search_container, LV_OBJ_FLAG_HIDDEN);
@@ -787,9 +785,9 @@ static void handle_search_navigation() {
     lv_obj_t* focused = lv_group_get_focused(g_input_group);
     if (focused != g_editor.search_input) return;
     
-    bool shift = kb_state[SDL_SCANCODE_LSHIFT] || kb_state[SDL_SCANCODE_RSHIFT];
+    bool shift = platform::get_key_modifiers().shift;
     
-    if (kb_state[SDL_SCANCODE_RETURN] || kb_state[SDL_SCANCODE_KP_ENTER]) {
+    if (platform::is_key_pressed(platform::KeyCode::Enter)) {
         last_nav_time = now;
         if (shift) {
             navigate_to_prev_match(g_search);
@@ -805,9 +803,9 @@ static void handle_shortcuts() {
     static bool last_meta = false;
     static uint32_t last_key_time = 0;
     
-    const uint8_t* kb_state = SDL_GetKeyboardState(nullptr);
-    bool meta_pressed = kb_state[SDL_SCANCODE_LGUI] || kb_state[SDL_SCANCODE_RGUI];
-    bool ctrl = kb_state[SDL_SCANCODE_LCTRL] || kb_state[SDL_SCANCODE_RCTRL];
+    platform::KeyModifiers modifiers = platform::get_key_modifiers();
+    bool meta_pressed = modifiers.meta;
+    bool ctrl = modifiers.ctrl;
     
     uint32_t now = lv_tick_get();
     bool debounce = (now - last_key_time) > 150;
@@ -832,7 +830,7 @@ static void handle_shortcuts() {
     }
     
     if (ctrl && debounce) {
-        if (kb_state[SDL_SCANCODE_A] && !g_sidebar.visible) {
+        if (platform::is_key_pressed(platform::KeyCode::A) && !g_sidebar.visible) {
             last_key_time = now;
             lv_obj_t* focused = lv_group_get_focused(g_input_group);
             if (focused && lv_obj_check_type(focused, &lv_textarea_class)) {
@@ -848,7 +846,7 @@ static void handle_shortcuts() {
             }
         }
         
-        if (kb_state[SDL_SCANCODE_F] && !g_sidebar.visible) {
+        if (platform::is_key_pressed(platform::KeyCode::F) && !g_sidebar.visible) {
             last_key_time = now;
             if (!g_search.active) {
                 g_search.active = true;
@@ -864,7 +862,7 @@ static void handle_shortcuts() {
             }
         }
         
-        if (kb_state[SDL_SCANCODE_T]) {
+        if (platform::is_key_pressed(platform::KeyCode::T)) {
             last_key_time = now;
             g_editor.dark_theme = !g_editor.dark_theme;
             update_editor_theme(g_editor, g_editor.dark_theme);
@@ -873,7 +871,7 @@ static void handle_shortcuts() {
             g_editor.state_change_time = lv_tick_get();
         }
         
-        if (kb_state[SDL_SCANCODE_EQUALS] || kb_state[SDL_SCANCODE_KP_PLUS]) {
+        if (platform::is_key_pressed(platform::KeyCode::Equals)) {
             last_key_time = now;
             if (g_editor.font_size_index < 9) {
                 g_editor.font_size_index++;
@@ -889,7 +887,7 @@ static void handle_shortcuts() {
             }
         }
         
-        if (kb_state[SDL_SCANCODE_MINUS] || kb_state[SDL_SCANCODE_KP_MINUS]) {
+        if (platform::is_key_pressed(platform::KeyCode::Minus)) {
             last_key_time = now;
             if (g_editor.font_size_index > 0) {
                 g_editor.font_size_index--;
@@ -941,17 +939,21 @@ static void load_editor_state(EditorState& state, const char* state_file_path,
 
 bool init_app(App& app) {
     lv_init();
-    
-    SDL_Init(SDL_INIT_VIDEO);
-    SDL_StartTextInput();
-    
-    app.display = lv_sdl_window_create(app.window_width, app.window_height);
-    if (!app.display) {
-        fprintf(stderr, "Failed to create SDL window\n");
+
+    if (!platform::init(app.window_width, app.window_height)) {
+        fprintf(stderr, "Failed to initialize platform backend\n");
+        lv_deinit();
         return false;
     }
-    
-    app.keyboard_indev = lv_sdl_keyboard_create();
+
+    app.display = platform::get_display();
+    app.keyboard_indev = platform::get_keyboard_indev();
+    if (!app.display) {
+        fprintf(stderr, "Failed to create platform display\n");
+        platform::shutdown();
+        lv_deinit();
+        return false;
+    }
     
     app.screen = lv_scr_act();
     
@@ -993,6 +995,8 @@ bool init_app(App& app) {
 }
 
 void shutdown_app(App& app) {
+    (void)app;
+
     if (g_editor.content_pending_save) {
         save_editor_content(g_editor);
     }
@@ -1006,7 +1010,7 @@ void shutdown_app(App& app) {
     }
     
     lv_deinit();
-    SDL_Quit();
+    platform::shutdown();
 }
 
 void run_app(App& app) {
@@ -1021,7 +1025,9 @@ void run_app(App& app) {
     lv_group_add_obj(g_input_group, g_editor.search_input);
     lv_group_add_obj(g_input_group, g_sidebar.search_input);
     
-    lv_indev_set_group(app.keyboard_indev, g_input_group);
+    if (app.keyboard_indev) {
+        lv_indev_set_group(app.keyboard_indev, g_input_group);
+    }
     
     lv_group_focus_obj(g_editor.textarea);
     
@@ -1043,50 +1049,50 @@ void run_app(App& app) {
         uint32_t wait_time = sidebar_animating ? 1 : IDLE_WAIT_MS;
         
         // Wait for event or timeout
-        SDL_Event wait_event;
-        bool had_event = SDL_WaitEventTimeout(&wait_event, wait_time);
+        platform::PlatformEvent wait_event {};
+        bool had_event = platform::poll_event(wait_event, wait_time);
         
         // Process the event we received
         if (had_event) {
             bool consumed = false;
             
-            if (wait_event.type == SDL_QUIT) {
+            if (wait_event.type == platform::PlatformEvent::Type::Quit) {
                 running = false;
                 consumed = true;
             }
             
-            if (wait_event.type == SDL_KEYDOWN) {
+            if (wait_event.type == platform::PlatformEvent::Type::KeyDown) {
                 // Check for force quit shortcut
-                if (wait_event.key.keysym.sym == SDLK_ESCAPE &&
-                    (wait_event.key.keysym.mod & KMOD_CTRL) &&
-                    (wait_event.key.keysym.mod & KMOD_SHIFT) &&
-                    (wait_event.key.keysym.mod & KMOD_ALT)) {
+                if (wait_event.key == platform::KeyCode::Escape &&
+                    wait_event.modifiers.ctrl &&
+                    wait_event.modifiers.shift &&
+                    wait_event.modifiers.alt) {
                     running = false;
                     consumed = true;
                 }
                 // Consume Ctrl+Arrow keys so LVGL doesn't also handle them
-                if ((wait_event.key.keysym.mod & KMOD_CTRL) &&
-                    (wait_event.key.keysym.sym == SDLK_UP || 
-                     wait_event.key.keysym.sym == SDLK_DOWN ||
-                     wait_event.key.keysym.sym == SDLK_LEFT ||
-                     wait_event.key.keysym.sym == SDLK_RIGHT)) {
+                if (wait_event.modifiers.ctrl &&
+                    (wait_event.key == platform::KeyCode::Up ||
+                     wait_event.key == platform::KeyCode::Down ||
+                     wait_event.key == platform::KeyCode::Left ||
+                     wait_event.key == platform::KeyCode::Right)) {
                     consumed = true;
                 }
                 // Consume Alt+Arrow keys so LVGL doesn't also handle them
-                if ((wait_event.key.keysym.mod & KMOD_ALT) &&
-                    (wait_event.key.keysym.sym == SDLK_LEFT ||
-                     wait_event.key.keysym.sym == SDLK_RIGHT)) {
+                if (wait_event.modifiers.alt &&
+                    (wait_event.key == platform::KeyCode::Left ||
+                     wait_event.key == platform::KeyCode::Right)) {
                     consumed = true;
                 }
                 // Consume Ctrl+Backspace so LVGL doesn't also handle it
-                if ((wait_event.key.keysym.mod & KMOD_CTRL) &&
-                    wait_event.key.keysym.sym == SDLK_BACKSPACE) {
+                if (wait_event.modifiers.ctrl &&
+                    wait_event.key == platform::KeyCode::Backspace) {
                     consumed = true;
                 }
                 // Handle backspace/delete with selection in editor (delete selected text)
                 if (!g_sidebar.visible && 
-                    (wait_event.key.keysym.sym == SDLK_BACKSPACE || wait_event.key.keysym.sym == SDLK_DELETE) &&
-                    !(wait_event.key.keysym.mod & KMOD_CTRL)) {
+                    (wait_event.key == platform::KeyCode::Backspace || wait_event.key == platform::KeyCode::Delete) &&
+                    !wait_event.modifiers.ctrl) {
                     lv_obj_t* focused = lv_group_get_focused(g_input_group);
                     if (focused == g_editor.textarea && has_selection(focused)) {
                         delete_selected_text(focused);
@@ -1104,9 +1110,8 @@ void run_app(App& app) {
                         // but consume Enter and Delete keys to prevent sidebar actions
                         // Note: Backspace is NOT consumed so LVGL textarea can delete characters
                         if (g_sidebar.file_dialog_selection == 0) {
-                            if (wait_event.key.keysym.sym == SDLK_RETURN || 
-                                wait_event.key.keysym.sym == SDLK_KP_ENTER ||
-                                wait_event.key.keysym.sym == SDLK_DELETE) {
+                            if (wait_event.key == platform::KeyCode::Enter ||
+                                wait_event.key == platform::KeyCode::Delete) {
                                 consumed = true;
                             }
                             // Don't consume other keys - let LVGL textarea handle input
@@ -1116,14 +1121,14 @@ void run_app(App& app) {
                         }
                     } else {
                         // Handle backspace for search (renaming uses LVGL textarea)
-                        if (wait_event.key.keysym.sym == SDLK_BACKSPACE) {
+                        if (wait_event.key == platform::KeyCode::Backspace) {
                             if (g_sidebar.searching) {
                                 handle_sidebar_backspace(g_sidebar, g_editor);
                             }
                         }
                         // Handle DELETE key for file deletion (also handle BACKSPACE on Mac when not searching/renaming)
-                        if (wait_event.key.keysym.sym == SDLK_DELETE ||
-                            (wait_event.key.keysym.sym == SDLK_BACKSPACE && !g_sidebar.searching && !g_sidebar.renaming)) {
+                        if (wait_event.key == platform::KeyCode::Delete ||
+                            (wait_event.key == platform::KeyCode::Backspace && !g_sidebar.searching && !g_sidebar.renaming)) {
                             if (!g_sidebar.searching && !g_sidebar.renaming && 
                                 !g_sidebar.confirm_delete && !g_sidebar.confirm_restore) {
                                 g_sidebar.folder_data.build_display_items(g_sidebar.searching);
@@ -1145,15 +1150,15 @@ void run_app(App& app) {
             }
             
             // Also consume key up events when sidebar is visible
-            if (wait_event.type == SDL_KEYUP && g_sidebar.visible) {
+            if (wait_event.type == platform::PlatformEvent::Type::KeyUp && g_sidebar.visible) {
                 consumed = true;
             }
             
             // Handle text input - intercept when sidebar is visible
-            if (wait_event.type == SDL_TEXTINPUT) {
+            if (wait_event.type == platform::PlatformEvent::Type::TextInput) {
                 if (g_sidebar.visible) {
                     if (g_sidebar.searching || g_sidebar.renaming) {
-                        handle_sidebar_text_input(g_sidebar, g_editor, wait_event.text.text);
+                        handle_sidebar_text_input(g_sidebar, g_editor, wait_event.text);
                         consumed = true;
                     } else if (g_sidebar.file_dialog_active && g_sidebar.file_dialog_selection == 0) {
                         // Let LVGL handle text input for file dialog name field
@@ -1166,15 +1171,14 @@ void run_app(App& app) {
             
             // Push event back if not consumed, so LVGL can process it
             if (!consumed) {
-                SDL_PushEvent(&wait_event);
+                platform::requeue_last_event();
             }
         }
         
         // Let LVGL process remaining events and render
         lv_timer_handler();
         
-        // Ensure keyboard state is updated for SDL_GetKeyboardState
-        SDL_PumpEvents();
+        platform::pump_events();
         
         handle_shortcuts();
         handle_search_navigation();

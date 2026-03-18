@@ -79,8 +79,25 @@
 /*====================
    SDL DRIVER CONFIG
   *====================*/
+#ifndef LV_USE_SDL
 #define LV_USE_SDL 1
+#endif
+
+#if LV_USE_SDL
+#ifndef LV_SDL_INCLUDE_PATH
 #define LV_SDL_INCLUDE_PATH <SDL2/SDL.h>
+#endif
+#ifndef LV_SDL_BUF_COUNT
 #define LV_SDL_BUF_COUNT 1
+#endif
+#endif
+
+#ifndef LV_USE_LINUX_FBDEV
+#define LV_USE_LINUX_FBDEV 0
+#endif
+
+#ifndef LV_USE_EVDEV
+#define LV_USE_EVDEV 0
+#endif
 
 #endif

@@ -6,10 +6,8 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 option(BUILD_TESTS "Build tests" ON)
-
-# Find SDL2
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(SDL2 REQUIRED sdl2)
+set(PLATFORM "sdl" CACHE STRING "Target platform: sdl, linux_fb, mcu")
+set_property(CACHE PLATFORM PROPERTY STRINGS sdl linux_fb mcu)
 
 # Use local LVGL from libs folder
 set(LV_CONF_PATH ${CMAKE_SOURCE_DIR}/lv_conf.h CACHE STRING "" FORCE)
@@ -19,7 +17,7 @@ add_subdirectory(libs/lvgl)
 
 # Configure LVGL with our lv_conf.h
 target_compile_definitions(lvgl PUBLIC LV_CONF_INCLUDE_SIMPLE)
-target_include_directories(lvgl PUBLIC ${CMAKE_SOURCE_DIR} ${SDL2_INCLUDE_DIRS})
+target_include_directories(lvgl PUBLIC ${CMAKE_SOURCE_DIR})
 
 # Exclude ARM assembly files from LVGL build
 get_target_property(LVGL_SOURCES lvgl SOURCES)
@@ -30,6 +28,16 @@ foreach(SRC ${LVGL_SOURCES})
     endif()
 endforeach()
 set_target_properties(lvgl PROPERTIES SOURCES "${FILTERED_SOURCES}")
+
+if(PLATFORM STREQUAL "sdl")
+    add_subdirectory(platforms/sdl)
+elseif(PLATFORM STREQUAL "linux_fb")
+    add_subdirectory(platforms/linux_fb)
+elseif(PLATFORM STREQUAL "mcu")
+    add_subdirectory(platforms/mcu)
+else()
+    message(FATAL_ERROR "Unsupported PLATFORM='${PLATFORM}'. Valid values: sdl, linux_fb, mcu")
+endif()
 
 add_executable(justtype_lvgl
     src/main.cpp
@@ -52,19 +60,14 @@ add_executable(justtype_lvgl
 
 target_include_directories(justtype_lvgl PRIVATE
     ${CMAKE_SOURCE_DIR}/src
-    ${SDL2_INCLUDE_DIRS}
+    ${CMAKE_SOURCE_DIR}/platforms
 )
 
 target_link_libraries(justtype_lvgl PRIVATE
     lvgl
+    platform_backend
     pthread
 )
-
-# Link SDL2 using pkg-config link directories
-target_link_directories(justtype_lvgl PRIVATE ${SDL2_LIBRARY_DIRS})
-target_link_libraries(justtype_lvgl PRIVATE ${SDL2_LIBRARIES})
-
-target_compile_options(justtype_lvgl PRIVATE ${SDL2_CFLAGS_OTHER})
 
 # Testing
 if(BUILD_TESTS)

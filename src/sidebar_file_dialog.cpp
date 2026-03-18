@@ -3,7 +3,7 @@
 #include "editor.h"
 #include "theme.h"
 #include "sidebar_folder.h"
-#include <SDL2/SDL.h>
+#include "platform.h"
 #include <cstring>
 #include <fstream>
 
@@ -234,7 +234,6 @@ static void update_dialog_selection_ui(SidebarState& sidebar, EditorState& edito
 }
 
 void handle_file_dialog_keyboard(SidebarState& sidebar, EditorState& editor) {
-    const uint8_t* kb_state = SDL_GetKeyboardState(nullptr);
     static uint32_t last_nav_time = 0;
     static uint32_t dialog_open_time = 0;
     uint32_t now = lv_tick_get();
@@ -251,14 +250,14 @@ void handle_file_dialog_keyboard(SidebarState& sidebar, EditorState& editor) {
     
     if (!nav_debounce) return;
     
-    if (kb_state[SDL_SCANCODE_ESCAPE]) {
+    if (platform::is_key_pressed(platform::KeyCode::Escape)) {
         last_nav_time = now;
         dialog_open_time = 0;
         hide_file_dialog(sidebar);
         return;
     }
     
-    if (kb_state[SDL_SCANCODE_RETURN] || kb_state[SDL_SCANCODE_KP_ENTER]) {
+    if (platform::is_key_pressed(platform::KeyCode::Enter)) {
         last_nav_time = now;
         dialog_open_time = 0;
         if (sidebar.file_dialog_selection == 3) {
@@ -269,7 +268,7 @@ void handle_file_dialog_keyboard(SidebarState& sidebar, EditorState& editor) {
         return;
     }
     
-    if (kb_state[SDL_SCANCODE_UP]) {
+    if (platform::is_key_pressed(platform::KeyCode::Up)) {
         last_nav_time = now;
         if (sidebar.file_dialog_selection == 1) {
             uint32_t sel = lv_dropdown_get_selected(sidebar.file_dialog_folder_dropdown);
@@ -286,7 +285,7 @@ void handle_file_dialog_keyboard(SidebarState& sidebar, EditorState& editor) {
         return;
     }
     
-    if (kb_state[SDL_SCANCODE_DOWN]) {
+    if (platform::is_key_pressed(platform::KeyCode::Down)) {
         last_nav_time = now;
         if (sidebar.file_dialog_selection == 1) {
             uint32_t sel = lv_dropdown_get_selected(sidebar.file_dialog_folder_dropdown);
@@ -302,7 +301,7 @@ void handle_file_dialog_keyboard(SidebarState& sidebar, EditorState& editor) {
     }
     
     if (sidebar.file_dialog_selection == 1) {
-        if (kb_state[SDL_SCANCODE_LEFT]) {
+        if (platform::is_key_pressed(platform::KeyCode::Left)) {
             last_nav_time = now;
             uint32_t sel = lv_dropdown_get_selected(sidebar.file_dialog_folder_dropdown);
             if (sel > 0) {
@@ -310,7 +309,7 @@ void handle_file_dialog_keyboard(SidebarState& sidebar, EditorState& editor) {
             }
             return;
         }
-        if (kb_state[SDL_SCANCODE_RIGHT]) {
+        if (platform::is_key_pressed(platform::KeyCode::Right)) {
             last_nav_time = now;
             uint32_t sel = lv_dropdown_get_selected(sidebar.file_dialog_folder_dropdown);
             uint32_t count = lv_dropdown_get_option_count(sidebar.file_dialog_folder_dropdown);
@@ -322,7 +321,7 @@ void handle_file_dialog_keyboard(SidebarState& sidebar, EditorState& editor) {
     }
     
     if (sidebar.file_dialog_selection == 0 || sidebar.file_dialog_selection == 2 || sidebar.file_dialog_selection == 3) {
-        if (kb_state[SDL_SCANCODE_LEFT]) {
+        if (platform::is_key_pressed(platform::KeyCode::Left)) {
             last_nav_time = now;
             if (sidebar.file_dialog_selection == 3) {
                 sidebar.file_dialog_selection = 2;
@@ -330,7 +329,7 @@ void handle_file_dialog_keyboard(SidebarState& sidebar, EditorState& editor) {
             }
             return;
         }
-        if (kb_state[SDL_SCANCODE_RIGHT]) {
+        if (platform::is_key_pressed(platform::KeyCode::Right)) {
             last_nav_time = now;
             if (sidebar.file_dialog_selection == 2) {
                 sidebar.file_dialog_selection = 3;
