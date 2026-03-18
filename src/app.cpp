@@ -1065,7 +1065,7 @@ void run_app(App& app) {
             if (wait_event.type == platform::PlatformEvent::Type::KeyDown) {
                 // Check for force quit shortcut
                 if (wait_event.key == platform::KeyCode::Escape &&
-                    wait_event.modifiers.ctrl &&
+                    wait_event.modifiers.meta &&
                     wait_event.modifiers.shift &&
                     wait_event.modifiers.alt) {
                     running = false;
