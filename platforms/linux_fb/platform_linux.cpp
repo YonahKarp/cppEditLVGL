@@ -500,7 +500,10 @@ bool poll_event(PlatformEvent& event, uint32_t timeout_ms) {
         g_has_last_lvgl_key_event = false;
     }
 
-    if (input.value != 0) {
+    bool text_modifier_active = key_event.modifiers.ctrl ||
+                                key_event.modifiers.alt ||
+                                key_event.modifiers.meta;
+    if (input.value != 0 && !text_modifier_active) {
         char ch = keycode_to_ascii(input.code, key_event.modifiers.shift, g_caps_lock);
         queue_platform_text_event(ch);
     }
