@@ -250,7 +250,11 @@ void handle_file_dialog_keyboard(SidebarState& sidebar, EditorState& editor) {
     
     if (!nav_debounce) return;
     
-    if (platform::is_key_pressed(platform::KeyCode::Escape)) {
+    platform::KeyModifiers modifiers = platform::get_key_modifiers();
+    bool close_shortcut = platform::is_key_pressed(platform::KeyCode::Escape) ||
+                          (platform::is_key_pressed(platform::KeyCode::Grave) && !modifiers.shift);
+
+    if (close_shortcut) {
         last_nav_time = now;
         dialog_open_time = 0;
         hide_file_dialog(sidebar);
@@ -381,7 +385,7 @@ void confirm_file_dialog(SidebarState& sidebar, EditorState& editor) {
         std::ofstream new_file(new_path);
         new_file.close();
         
-        save_editor_content(editor);
+        flush_editor_content(editor);
         
         scan_folders_and_files(sidebar.folder_data, editor.user_files_dir);
         filter_folder_entries(sidebar.folder_data, std::string(sidebar.search_buffer, sidebar.search_len));

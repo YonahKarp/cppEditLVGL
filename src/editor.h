@@ -40,6 +40,7 @@ struct EditorState {
 
     bool first_frame = true;
     int saved_cursor_pos = -1;
+    bool suppress_change_tracking = false;
 
     bool dark_theme = true;
     int font_size_index = 3;
@@ -51,6 +52,7 @@ void create_editor_ui(EditorState& state, lv_obj_t* parent);
 void set_search_input_callback(EditorState& state, lv_event_cb_t cb, void* user_data);
 void load_file_into_editor(EditorState& state, const char* file_path);
 void save_editor_content(EditorState& state);
+void flush_editor_content(EditorState& state);
 void save_editor_state(EditorState& state, const std::set<std::string>& collapsed_folders);
 void load_collapsed_folders(const std::string& state_file_path, std::set<std::string>& collapsed_folders);
 void update_editor_theme(EditorState& state, bool dark);

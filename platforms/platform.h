@@ -20,6 +20,7 @@ enum class KeyCode {
     Delete,
     Enter,
     Escape,
+    Grave,
     Tab,
     Up,
     Down,

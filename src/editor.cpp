@@ -42,6 +42,7 @@ static const lv_font_t* get_font_for_size_index(int index) {
 static void textarea_event_cb(lv_event_t* e) {
     EditorState* state = static_cast<EditorState*>(lv_event_get_user_data(e));
     if (!state) return;
+    if (state->suppress_change_tracking) return;
     
     lv_event_code_t code = lv_event_get_code(e);
     if (code == LV_EVENT_VALUE_CHANGED) {
@@ -176,6 +177,7 @@ void create_editor_ui(EditorState& state, lv_obj_t* parent) {
 void load_file_into_editor(EditorState& state, const char* file_path) {
     state.current_file_path = file_path;
     state.temp_file_path = std::string(file_path) + ".tmp";
+    state.suppress_change_tracking = true;
     
     std::ifstream infile(file_path);
     if (infile) {
@@ -200,6 +202,10 @@ void load_file_into_editor(EditorState& state, const char* file_path) {
     if (state.saved_cursor_pos >= 0) {
         lv_textarea_set_cursor_pos(state.textarea, state.saved_cursor_pos);
     }
+
+    state.suppress_change_tracking = false;
+    state.content_pending_save = false;
+    state.content_change_time = 0;
 }
 
 void save_editor_content(EditorState& state) {
@@ -219,6 +225,15 @@ void save_editor_content(EditorState& state) {
             std::rename(state.temp_file_path.c_str(), state.current_file_path.c_str());
         }
     }
+}
+
+void flush_editor_content(EditorState& state) {
+    if (!state.content_pending_save) {
+        return;
+    }
+
+    save_editor_content(state);
+    state.content_pending_save = false;
 }
 
 void save_editor_state(EditorState& state, const std::set<std::string>& collapsed_folders) {

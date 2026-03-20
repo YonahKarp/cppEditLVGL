@@ -30,6 +30,7 @@ KeyCode scancode_to_key(SDL_Scancode scancode) {
         case SDL_SCANCODE_RETURN:
         case SDL_SCANCODE_KP_ENTER: return KeyCode::Enter;
         case SDL_SCANCODE_ESCAPE: return KeyCode::Escape;
+        case SDL_SCANCODE_GRAVE: return KeyCode::Grave;
         case SDL_SCANCODE_TAB: return KeyCode::Tab;
         case SDL_SCANCODE_UP: return KeyCode::Up;
         case SDL_SCANCODE_DOWN: return KeyCode::Down;
@@ -177,6 +178,7 @@ bool is_key_pressed(KeyCode key) {
         case KeyCode::Delete: return is_scancode_pressed(SDL_SCANCODE_DELETE);
         case KeyCode::Enter: return is_scancode_pressed(SDL_SCANCODE_RETURN) || is_scancode_pressed(SDL_SCANCODE_KP_ENTER);
         case KeyCode::Escape: return is_scancode_pressed(SDL_SCANCODE_ESCAPE);
+        case KeyCode::Grave: return is_scancode_pressed(SDL_SCANCODE_GRAVE);
         case KeyCode::Tab: return is_scancode_pressed(SDL_SCANCODE_TAB);
         case KeyCode::Up: return is_scancode_pressed(SDL_SCANCODE_UP);
         case KeyCode::Down: return is_scancode_pressed(SDL_SCANCODE_DOWN);

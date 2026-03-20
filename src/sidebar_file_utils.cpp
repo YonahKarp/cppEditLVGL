@@ -6,7 +6,7 @@
 #include <cstring>
 
 void switch_to_file(SidebarState& sidebar, EditorState& editor, const std::string& filename) {
-    save_editor_content(editor);
+    flush_editor_content(editor);
     
     std::string new_path = editor.user_files_dir + "/" + filename;
     load_file_into_editor(editor, new_path.c_str());
@@ -16,7 +16,7 @@ void switch_to_file(SidebarState& sidebar, EditorState& editor, const std::strin
 }
 
 void switch_to_file_entry(SidebarState& sidebar, EditorState& editor, const SidebarFileEntry& entry) {
-    save_editor_content(editor);
+    flush_editor_content(editor);
     
     std::string relative_path = sidebar.folder_data.get_relative_path(entry);
     std::string new_path = editor.user_files_dir + "/" + relative_path;
@@ -27,7 +27,7 @@ void switch_to_file_entry(SidebarState& sidebar, EditorState& editor, const Side
 }
 
 void create_new_file(SidebarState& sidebar, EditorState& editor, const std::string& folder) {
-    save_editor_content(editor);
+    flush_editor_content(editor);
     
     int counter = 1;
     std::string new_filename;

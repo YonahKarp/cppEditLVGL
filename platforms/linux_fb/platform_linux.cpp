@@ -65,6 +65,7 @@ KeyCode linux_key_to_keycode(uint16_t code) {
         case KEY_ENTER:
         case KEY_KPENTER: return KeyCode::Enter;
         case KEY_ESC: return KeyCode::Escape;
+        case KEY_GRAVE: return KeyCode::Grave;
         case KEY_TAB: return KeyCode::Tab;
         case KEY_UP: return KeyCode::Up;
         case KEY_DOWN: return KeyCode::Down;
@@ -526,6 +527,7 @@ bool is_key_pressed(KeyCode key) {
         case KeyCode::Delete: return raw_pressed(KEY_DELETE);
         case KeyCode::Enter: return raw_pressed(KEY_ENTER) || raw_pressed(KEY_KPENTER);
         case KeyCode::Escape: return raw_pressed(KEY_ESC);
+        case KeyCode::Grave: return raw_pressed(KEY_GRAVE);
         case KeyCode::Tab: return raw_pressed(KEY_TAB);
         case KeyCode::Up: return raw_pressed(KEY_UP);
         case KeyCode::Down: return raw_pressed(KEY_DOWN);

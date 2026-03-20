@@ -20,6 +20,19 @@ static SidebarState g_sidebar;
 static SearchState g_search;
 static lv_group_t* g_input_group = nullptr;
 static int32_t g_selection_start = -1;
+static bool g_suppress_close_shortcut_text = false;
+
+static bool is_close_shortcut_pressed() {
+    platform::KeyModifiers modifiers = platform::get_key_modifiers();
+    return platform::is_key_pressed(platform::KeyCode::Escape) ||
+           (platform::is_key_pressed(platform::KeyCode::Grave) && !modifiers.shift);
+}
+
+static bool is_close_shortcut_event(const platform::PlatformEvent& event) {
+    return event.type == platform::PlatformEvent::Type::KeyDown &&
+           (event.key == platform::KeyCode::Escape ||
+            (event.key == platform::KeyCode::Grave && !event.modifiers.shift));
+}
 
 static void focus_editor_textarea() {
     if (g_input_group) {
@@ -547,7 +560,7 @@ static void handle_sidebar_keyboard() {
                 confirm_restore_action(g_sidebar, g_editor);
             }
             
-            if (platform::is_key_pressed(platform::KeyCode::Escape)) {
+            if (is_close_shortcut_pressed()) {
                 last_nav_time = now;
                 hide_restore_dialog(g_sidebar);
             }
@@ -575,7 +588,7 @@ static void handle_sidebar_keyboard() {
                 confirm_delete_action(g_sidebar, g_editor);
             }
             
-            if (platform::is_key_pressed(platform::KeyCode::Escape)) {
+            if (is_close_shortcut_pressed()) {
                 last_nav_time = now;
                 hide_delete_dialog(g_sidebar);
             }
@@ -745,7 +758,7 @@ static void handle_sidebar_keyboard() {
             }
         }
         
-        if (platform::is_key_pressed(platform::KeyCode::Escape)) {
+        if (is_close_shortcut_pressed()) {
             last_nav_time = now;
             if (g_sidebar.renaming) {
                 if (g_sidebar.rename_textarea) {
@@ -772,7 +785,7 @@ static void handle_search_navigation() {
     if (!debounce) return;
     
     // Handle ESC to close search
-    if (platform::is_key_pressed(platform::KeyCode::Escape)) {
+    if (is_close_shortcut_pressed()) {
         last_nav_time = now;
         close_search(g_search);
         lv_obj_add_flag(g_editor.search_container, LV_OBJ_FLAG_HIDDEN);
@@ -1071,6 +1084,11 @@ void run_app(App& app) {
                     running = false;
                     consumed = true;
                 }
+                if (is_close_shortcut_event(wait_event) &&
+                    wait_event.key == platform::KeyCode::Grave &&
+                    (g_search.active || g_sidebar.visible)) {
+                    g_suppress_close_shortcut_text = true;
+                }
                 // Consume Ctrl+Arrow keys so LVGL doesn't also handle them
                 if (wait_event.modifiers.ctrl &&
                     (wait_event.key == platform::KeyCode::Up ||
@@ -1157,7 +1175,10 @@ void run_app(App& app) {
             
             // Handle text input - intercept when sidebar is visible
             if (wait_event.type == platform::PlatformEvent::Type::TextInput) {
-                if (g_sidebar.visible && (g_sidebar.searching || g_sidebar.renaming)) {
+                if (g_suppress_close_shortcut_text && strcmp(wait_event.text, "`") == 0) {
+                    g_suppress_close_shortcut_text = false;
+                    consumed = true;
+                } else if (g_sidebar.visible && (g_sidebar.searching || g_sidebar.renaming)) {
                     handle_sidebar_text_input(g_sidebar, g_editor, wait_event.text);
                     consumed = true;
                 } else {
@@ -1175,6 +1196,9 @@ void run_app(App& app) {
                     }
                     consumed = true;
                 }
+            } else if (wait_event.type == platform::PlatformEvent::Type::KeyUp &&
+                       wait_event.key == platform::KeyCode::Grave) {
+                g_suppress_close_shortcut_text = false;
             }
             
             // Push event back if not consumed, so LVGL can process it
