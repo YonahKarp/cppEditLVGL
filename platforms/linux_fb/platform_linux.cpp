@@ -2,6 +2,7 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <deque>
 #include <string>
 
 #include "lvgl.h"
@@ -17,7 +18,6 @@
 #include <unistd.h>
 
 #include "src/drivers/display/fb/lv_linux_fbdev.h"
-#include "src/drivers/evdev/lv_evdev.h"
 #endif
 
 namespace platform {
@@ -32,8 +32,16 @@ int g_evdev_fd = -1;
 bool g_evdev_grabbed = false;
 bool g_caps_lock = false;
 std::array<bool, KEY_MAX + 1> g_key_state {};
-PlatformEvent g_pending_text_event {};
-bool g_has_pending_text_event = false;
+std::deque<PlatformEvent> g_pending_platform_events;
+
+struct LvglKeyEvent {
+    uint32_t key = 0;
+    lv_indev_state_t state = LV_INDEV_STATE_RELEASED;
+};
+
+std::deque<LvglKeyEvent> g_pending_lvgl_key_events;
+LvglKeyEvent g_last_lvgl_key_event {};
+bool g_has_last_lvgl_key_event = false;
 
 bool g_termios_saved = false;
 termios g_original_termios {};
@@ -121,23 +129,48 @@ char shifted_digit_symbol(uint16_t code) {
 }
 
 char keycode_to_ascii(uint16_t code, bool shift, bool caps_lock) {
-    if (code >= KEY_A && code <= KEY_Z) {
-        char base = static_cast<char>('a' + (code - KEY_A));
+    auto alpha = [&](char lower) {
         bool upper = shift ^ caps_lock;
-        return upper ? static_cast<char>(base - 'a' + 'A') : base;
-    }
-
-    if (code >= KEY_1 && code <= KEY_0) {
-        if (shift) {
-            return shifted_digit_symbol(code);
-        }
-        if (code == KEY_0) {
-            return '0';
-        }
-        return static_cast<char>('1' + (code - KEY_1));
-    }
+        return upper ? static_cast<char>(lower - 'a' + 'A') : lower;
+    };
 
     switch (code) {
+        case KEY_Q: return alpha('q');
+        case KEY_W: return alpha('w');
+        case KEY_E: return alpha('e');
+        case KEY_R: return alpha('r');
+        case KEY_T: return alpha('t');
+        case KEY_Y: return alpha('y');
+        case KEY_U: return alpha('u');
+        case KEY_I: return alpha('i');
+        case KEY_O: return alpha('o');
+        case KEY_P: return alpha('p');
+        case KEY_A: return alpha('a');
+        case KEY_S: return alpha('s');
+        case KEY_D: return alpha('d');
+        case KEY_F: return alpha('f');
+        case KEY_G: return alpha('g');
+        case KEY_H: return alpha('h');
+        case KEY_J: return alpha('j');
+        case KEY_K: return alpha('k');
+        case KEY_L: return alpha('l');
+        case KEY_Z: return alpha('z');
+        case KEY_X: return alpha('x');
+        case KEY_C: return alpha('c');
+        case KEY_V: return alpha('v');
+        case KEY_B: return alpha('b');
+        case KEY_N: return alpha('n');
+        case KEY_M: return alpha('m');
+        case KEY_1: return shift ? shifted_digit_symbol(code) : '1';
+        case KEY_2: return shift ? shifted_digit_symbol(code) : '2';
+        case KEY_3: return shift ? shifted_digit_symbol(code) : '3';
+        case KEY_4: return shift ? shifted_digit_symbol(code) : '4';
+        case KEY_5: return shift ? shifted_digit_symbol(code) : '5';
+        case KEY_6: return shift ? shifted_digit_symbol(code) : '6';
+        case KEY_7: return shift ? shifted_digit_symbol(code) : '7';
+        case KEY_8: return shift ? shifted_digit_symbol(code) : '8';
+        case KEY_9: return shift ? shifted_digit_symbol(code) : '9';
+        case KEY_0: return shift ? shifted_digit_symbol(code) : '0';
         case KEY_SPACE: return ' ';
         case KEY_MINUS: return shift ? '_' : '-';
         case KEY_EQUAL: return shift ? '+' : '=';
@@ -169,16 +202,65 @@ char keycode_to_ascii(uint16_t code, bool shift, bool caps_lock) {
     }
 }
 
-void queue_text_event(char ch) {
+uint32_t evdev_to_lvgl_key(uint16_t code) {
+    switch (code) {
+        case KEY_UP:
+            return LV_KEY_UP;
+        case KEY_DOWN:
+            return LV_KEY_DOWN;
+        case KEY_RIGHT:
+            return LV_KEY_RIGHT;
+        case KEY_LEFT:
+            return LV_KEY_LEFT;
+        case KEY_ESC:
+            return LV_KEY_ESC;
+        case KEY_DELETE:
+            return LV_KEY_DEL;
+        case KEY_BACKSPACE:
+            return LV_KEY_BACKSPACE;
+        case KEY_ENTER:
+        case KEY_KPENTER:
+            return LV_KEY_ENTER;
+        case KEY_NEXT:
+        case KEY_TAB:
+            return LV_KEY_NEXT;
+        case KEY_PREVIOUS:
+            return LV_KEY_PREV;
+        case KEY_HOME:
+            return LV_KEY_HOME;
+        case KEY_END:
+            return LV_KEY_END;
+        default:
+            return 0;
+    }
+}
+
+void queue_platform_text_event(char ch) {
     if (ch == '\0') {
         return;
     }
 
-    g_pending_text_event = {};
-    g_pending_text_event.type = PlatformEvent::Type::TextInput;
-    g_pending_text_event.text[0] = ch;
-    g_pending_text_event.text[1] = '\0';
-    g_has_pending_text_event = true;
+    PlatformEvent text_event {};
+    text_event.type = PlatformEvent::Type::TextInput;
+    text_event.text[0] = ch;
+    text_event.text[1] = '\0';
+    g_pending_platform_events.push_back(text_event);
+}
+
+void linux_keyboard_read(lv_indev_t*, lv_indev_data_t* data) {
+    data->key = 0;
+    data->state = LV_INDEV_STATE_RELEASED;
+    data->continue_reading = false;
+
+    if (g_pending_lvgl_key_events.empty()) {
+        return;
+    }
+
+    const LvglKeyEvent next_event = g_pending_lvgl_key_events.front();
+    g_pending_lvgl_key_events.pop_front();
+    data->key = next_event.key;
+    data->state = next_event.state;
+    data->continue_reading = !g_pending_lvgl_key_events.empty();
 }
 
 bool device_looks_like_keyboard(int fd) {
@@ -245,8 +327,10 @@ void restore_terminal_mode() {
 bool init(int32_t, int32_t) {
 #if defined(__linux__)
     g_caps_lock = false;
-    g_pending_text_event = {};
-    g_has_pending_text_event = false;
+    g_pending_platform_events.clear();
+    g_pending_lvgl_key_events.clear();
+    g_last_lvgl_key_event = {};
+    g_has_last_lvgl_key_event = false;
 
     const char* fb_file = std::getenv("JUSTTYPE_FBDEV");
     const char* evdev_from_env = std::getenv("JUSTTYPE_EVDEV");
@@ -270,7 +354,13 @@ bool init(int32_t, int32_t) {
     }
     lv_linux_fbdev_set_file(g_display, fb_file);
 
-    g_keyboard = lv_evdev_create(LV_INDEV_TYPE_KEYPAD, evdev_path.c_str());
+    g_keyboard = lv_indev_create();
+    if (g_keyboard) {
+        lv_indev_set_type(g_keyboard, LV_INDEV_TYPE_KEYPAD);
+        lv_indev_set_read_cb(g_keyboard, linux_keyboard_read);
+        lv_indev_set_display(g_keyboard, g_display);
+    }
+
     g_evdev_fd = open(evdev_path.c_str(), O_RDONLY | O_NONBLOCK);
     if (g_evdev_fd < 0) {
         std::memset(g_key_state.data(), 0, g_key_state.size() * sizeof(bool));
@@ -283,7 +373,7 @@ bool init(int32_t, int32_t) {
     }
 
     if (!g_keyboard) {
-        std::fprintf(stderr, "Warning: lv_evdev_create failed for '%s'\n", evdev_path.c_str());
+        std::fprintf(stderr, "Warning: failed to create LVGL keyboard input\n");
     }
 
     set_terminal_raw_mode();
@@ -295,8 +385,10 @@ bool init(int32_t, int32_t) {
 
 void shutdown() {
 #if defined(__linux__)
-    g_pending_text_event = {};
-    g_has_pending_text_event = false;
+    g_pending_platform_events.clear();
+    g_pending_lvgl_key_events.clear();
+    g_last_lvgl_key_event = {};
+    g_has_last_lvgl_key_event = false;
 
     if (g_evdev_fd >= 0) {
         if (g_evdev_grabbed) {
@@ -326,10 +418,9 @@ bool poll_event(PlatformEvent& event, uint32_t timeout_ms) {
     event = {};
 
 #if defined(__linux__)
-    if (g_has_pending_text_event) {
-        event = g_pending_text_event;
-        g_pending_text_event = {};
-        g_has_pending_text_event = false;
+    if (!g_pending_platform_events.empty()) {
+        event = g_pending_platform_events.front();
+        g_pending_platform_events.pop_front();
         return true;
     }
 
@@ -366,16 +457,30 @@ bool poll_event(PlatformEvent& event, uint32_t timeout_ms) {
         g_key_state[input.code] = input.value != 0;
     }
 
-    event.key = linux_key_to_keycode(input.code);
-    event.modifiers = current_modifiers();
-    event.repeat = input.value == 2;
-    event.type = (input.value == 0) ? PlatformEvent::Type::KeyUp : PlatformEvent::Type::KeyDown;
+    PlatformEvent key_event {};
+    key_event.key = linux_key_to_keycode(input.code);
+    key_event.modifiers = current_modifiers();
+    key_event.repeat = input.value == 2;
+    key_event.type = (input.value == 0) ? PlatformEvent::Type::KeyUp : PlatformEvent::Type::KeyDown;
+    g_pending_platform_events.push_back(key_event);
 
-    if (input.value != 0) {
-        char ch = keycode_to_ascii(input.code, event.modifiers.shift, g_caps_lock);
-        queue_text_event(ch);
+    uint32_t lvgl_key = evdev_to_lvgl_key(input.code);
+    if (lvgl_key != 0) {
+        g_last_lvgl_key_event.key = lvgl_key;
+        g_last_lvgl_key_event.state = (input.value == 0) ? LV_INDEV_STATE_RELEASED : LV_INDEV_STATE_PRESSED;
+        g_has_last_lvgl_key_event = true;
+    } else {
+        g_last_lvgl_key_event = {};
+        g_has_last_lvgl_key_event = false;
     }
 
+    if (input.value != 0) {
+        char ch = keycode_to_ascii(input.code, key_event.modifiers.shift, g_caps_lock);
+        queue_platform_text_event(ch);
+    }
+
+    event = g_pending_platform_events.front();
+    g_pending_platform_events.pop_front();
     return true;
 #else
     (void)timeout_ms;
@@ -384,6 +489,15 @@ bool poll_event(PlatformEvent& event, uint32_t timeout_ms) {
 }
 
 void requeue_last_event() {
+#if defined(__linux__)
+    if (!g_has_last_lvgl_key_event || g_last_lvgl_key_event.key == 0) {
+        return;
+    }
+
+    g_pending_lvgl_key_events.push_back(g_last_lvgl_key_event);
+    g_has_last_lvgl_key_event = false;
+    g_last_lvgl_key_event = {};
+#endif
 }
 
 void pump_events() {
