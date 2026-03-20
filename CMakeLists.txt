@@ -44,6 +44,7 @@ add_executable(justtype_lvgl
     src/app.cpp
     src/editor.cpp
     src/editor_word_count.cpp
+    src/textarea_utils.cpp
     src/sidebar.cpp
     src/sidebar_dialog.cpp
     src/sidebar_folder.cpp

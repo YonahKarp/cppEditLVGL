@@ -120,7 +120,6 @@ void create_editor_ui(EditorState& state, lv_obj_t* parent) {
     lv_obj_set_flex_grow(state.textarea, 1);
     lv_textarea_set_placeholder_text(state.textarea, "Start typing...");
     lv_textarea_set_accepted_chars(state.textarea, NULL);
-    lv_textarea_set_max_length(state.textarea, TEXT_BUFFER_SIZE - 1);
     lv_textarea_set_text_selection(state.textarea, true);
     
     lv_obj_set_style_bg_color(state.textarea, theme.edit_bg, 0);

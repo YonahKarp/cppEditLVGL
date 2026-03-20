@@ -5,6 +5,7 @@
 #include "search.h"
 #include "theme.h"
 #include "file_manager.h"
+#include "textarea_utils.h"
 #include "text_navigation.h"
 #include "platform.h"
 #include <fstream>
@@ -160,54 +161,13 @@ static std::string get_selected_text(lv_obj_t* textarea) {
 }
 
 static void delete_selected_text(lv_obj_t* textarea, uint32_t* out_cursor_pos = nullptr) {
-    if (!textarea || !lv_obj_check_type(textarea, &lv_textarea_class)) return;
-    
-    lv_obj_t* label = lv_textarea_get_label(textarea);
-    if (!label) return;
-    
-    uint32_t sel_start = lv_label_get_text_selection_start(label);
-    uint32_t sel_end = lv_label_get_text_selection_end(label);
-    
-    if (sel_start == LV_LABEL_TEXT_SELECTION_OFF || sel_end == LV_LABEL_TEXT_SELECTION_OFF) {
-        return;
-    }
-    
-    if (sel_start > sel_end) {
-        uint32_t tmp = sel_start;
-        sel_start = sel_end;
-        sel_end = tmp;
-    }
-    
-    uint32_t chars_to_delete = sel_end - sel_start;
-    
-    // Clear selection first
-    lv_label_set_text_selection_start(label, LV_LABEL_TEXT_SELECTION_OFF);
-    lv_label_set_text_selection_end(label, LV_LABEL_TEXT_SELECTION_OFF);
-    g_selection_start = -1;
-    
-    // Move cursor to end of selection and delete backwards
-    lv_textarea_set_cursor_pos(textarea, sel_end);
-    for (uint32_t i = 0; i < chars_to_delete; i++) {
-        lv_textarea_delete_char(textarea);
-    }
-    
-    if (out_cursor_pos) {
-        *out_cursor_pos = sel_start;
+    if (textarea_delete_selected_text(textarea, out_cursor_pos)) {
+        g_selection_start = -1;
     }
 }
 
 static bool has_selection(lv_obj_t* textarea) {
-    if (!textarea || !lv_obj_check_type(textarea, &lv_textarea_class)) return false;
-    
-    lv_obj_t* label = lv_textarea_get_label(textarea);
-    if (!label) return false;
-    
-    uint32_t sel_start = lv_label_get_text_selection_start(label);
-    uint32_t sel_end = lv_label_get_text_selection_end(label);
-    
-    return sel_start != LV_LABEL_TEXT_SELECTION_OFF && 
-           sel_end != LV_LABEL_TEXT_SELECTION_OFF &&
-           sel_start != sel_end;
+    return textarea_has_selection(textarea);
 }
 
 static void handle_clipboard() {
@@ -256,15 +216,8 @@ static void handle_clipboard() {
         last_clipboard_time = now;
         char* clipboard = platform::clipboard_get();
         if (clipboard && strlen(clipboard) > 0) {
-            // Delete any selected text first
-            if (has_selection(focused)) {
-                delete_selected_text(focused);
-            }
-            
-            // Insert clipboard text using add_text for proper cursor handling
-            lv_textarea_add_text(focused, clipboard);
-            
-            if (focused == g_editor.textarea) {
+            size_t max_bytes = (focused == g_editor.textarea) ? static_cast<size_t>(TEXT_BUFFER_SIZE - 1) : 0;
+            if (textarea_add_text_with_limit(focused, clipboard, max_bytes) && focused == g_editor.textarea) {
                 g_editor.content_pending_save = true;
                 g_editor.content_change_time = lv_tick_get();
                 update_word_count(g_editor);
@@ -1186,11 +1139,9 @@ void run_app(App& app) {
                 } else {
                     lv_obj_t* focused = lv_group_get_focused(g_input_group);
                     if (focused && lv_obj_check_type(focused, &lv_textarea_class) && wait_event.text[0] != '\0') {
-                        if (has_selection(focused)) {
-                            delete_selected_text(focused);
-                        }
-                        lv_textarea_add_text(focused, wait_event.text);
-                        if (focused == g_editor.textarea) {
+                        size_t max_bytes = (focused == g_editor.textarea) ? static_cast<size_t>(TEXT_BUFFER_SIZE - 1) : 0;
+                        if (textarea_add_text_with_limit(focused, wait_event.text, max_bytes) &&
+                            focused == g_editor.textarea) {
                             g_editor.content_pending_save = true;
                             g_editor.content_change_time = lv_tick_get();
                             update_word_count(g_editor);
