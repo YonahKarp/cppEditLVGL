@@ -1,24 +1,10 @@
 #include "editor.h"
+#include "editor_word_count.h"
 #include "theme.h"
 #include "search.h"
+#include <utility>
 #include <cstring>
 #include <fstream>
-
-int count_words(const char* text, int text_len) {
-    int count = 0;
-    bool in_word = false;
-    for (int i = 0; i < text_len; i++) {
-        char c = text[i];
-        bool is_whitespace = (c == ' ' || c == '\n' || c == '\t' || c == '\r');
-        if (is_whitespace) {
-            in_word = false;
-        } else if (!in_word) {
-            in_word = true;
-            count++;
-        }
-    }
-    return count;
-}
 
 static const lv_font_t* get_font_for_size_index(int index) {
     static const lv_font_t* fonts[] = {
@@ -190,17 +176,19 @@ void load_file_into_editor(EditorState& state, const char* file_path) {
         }
         
         lv_textarea_set_text(state.textarea, content.c_str());
-        state.cached_word_count = count_words(content.c_str(), content.size());
+        show_pending_word_count(state);
+        request_word_count(state, std::move(content));
     } else {
         lv_textarea_set_text(state.textarea, "");
-        state.cached_word_count = 0;
+        show_pending_word_count(state);
+        request_word_count(state, std::string());
     }
     
     update_filename_display(state);
-    update_word_count(state);
     
     if (state.saved_cursor_pos >= 0) {
         lv_textarea_set_cursor_pos(state.textarea, state.saved_cursor_pos);
+        state.saved_cursor_pos = -1;
     }
 
     state.suppress_change_tracking = false;
@@ -343,15 +331,6 @@ void update_editor_theme(EditorState& state, bool dark) {
         lv_color_t fill_color = state.battery.percent > 20 ? theme.battery_good : theme.battery_low;
         update_battery_icon_theme(state.battery, theme.battery_border, fill_color);
     }
-}
-
-void update_word_count(EditorState& state) {
-    const char* text = lv_textarea_get_text(state.textarea);
-    state.cached_word_count = count_words(text, strlen(text));
-    
-    char buffer[32];
-    snprintf(buffer, sizeof(buffer), "%d words", state.cached_word_count);
-    lv_label_set_text(state.word_count_label, buffer);
 }
 
 void update_filename_display(EditorState& state) {

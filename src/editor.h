@@ -3,14 +3,15 @@
 #include "lvgl.h"
 #include "icons/battery_icon.h"
 #include "icons/magnifying_glass_icon.h"
-#include <string>
-#include <set>
 #include <cstdint>
+#include <set>
+#include <string>
 
 constexpr int TEXT_BUFFER_SIZE = 512 * 1024;
 
 struct SearchState;
 struct SidebarState;
+struct EditorWordCountState;
 
 enum class JumpDirection { None = 0, Top = -1, Bottom = 1 };
 
@@ -46,9 +47,12 @@ struct EditorState {
     int font_size_index = 3;
 
     int cached_word_count = 0;
+    EditorWordCountState* word_count = nullptr;
 };
 
 void create_editor_ui(EditorState& state, lv_obj_t* parent);
+void start_editor_background_tasks(EditorState& state);
+void stop_editor_background_tasks(EditorState& state);
 void set_search_input_callback(EditorState& state, lv_event_cb_t cb, void* user_data);
 void load_file_into_editor(EditorState& state, const char* file_path);
 void save_editor_content(EditorState& state);
@@ -57,8 +61,7 @@ void save_editor_state(EditorState& state, const std::set<std::string>& collapse
 void load_collapsed_folders(const std::string& state_file_path, std::set<std::string>& collapsed_folders);
 void update_editor_theme(EditorState& state, bool dark);
 void update_word_count(EditorState& state);
+void process_pending_word_count(EditorState& state, uint32_t debounce_delay);
 void update_filename_display(EditorState& state);
 void process_pending_saves(EditorState& state, uint32_t debounce_delay, const std::set<std::string>& collapsed_folders);
 void update_battery_display(EditorState& state);
-
-int count_words(const char* text, int text_len);

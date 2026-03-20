@@ -45,6 +45,7 @@ bool g_has_last_lvgl_key_event = false;
 
 bool g_termios_saved = false;
 termios g_original_termios {};
+bool g_cursor_hidden = false;
 
 constexpr int kMaxEventDevices = 32;
 
@@ -315,6 +316,28 @@ void set_terminal_raw_mode() {
     }
 }
 
+void hide_terminal_cursor() {
+    if (!isatty(STDOUT_FILENO)) {
+        return;
+    }
+
+    static constexpr char kHideCursor[] = "\033[?25l";
+    ssize_t written = write(STDOUT_FILENO, kHideCursor, sizeof(kHideCursor) - 1);
+    if (written == static_cast<ssize_t>(sizeof(kHideCursor) - 1)) {
+        g_cursor_hidden = true;
+    }
+}
+
+void show_terminal_cursor() {
+    if (!g_cursor_hidden || !isatty(STDOUT_FILENO)) {
+        return;
+    }
+
+    static constexpr char kShowCursor[] = "\033[?25h";
+    (void)write(STDOUT_FILENO, kShowCursor, sizeof(kShowCursor) - 1);
+    g_cursor_hidden = false;
+}
+
 void restore_terminal_mode() {
     if (g_termios_saved) {
         tcsetattr(STDIN_FILENO, TCSANOW, &g_original_termios);
@@ -378,6 +401,7 @@ bool init(int32_t, int32_t) {
     }
 
     set_terminal_raw_mode();
+    hide_terminal_cursor();
     return true;
 #else
     return false;
@@ -400,6 +424,7 @@ void shutdown() {
         close(g_evdev_fd);
         g_evdev_fd = -1;
     }
+    show_terminal_cursor();
     restore_terminal_mode();
 #endif
     g_display = nullptr;

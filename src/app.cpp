@@ -992,6 +992,7 @@ bool init_app(App& app) {
     load_collapsed_folders(state_file_path, g_sidebar.folder_data.collapsed_folders);
     
     create_editor_ui(g_editor, app.screen);
+    start_editor_background_tasks(g_editor);
     set_search_input_callback(g_editor, search_input_event_cb, nullptr);
     create_sidebar_ui(g_sidebar, g_editor, app.screen);
     
@@ -1017,6 +1018,7 @@ void shutdown_app(App& app) {
     if (g_editor.state_pending_save) {
         save_editor_state(g_editor, g_sidebar.folder_data.collapsed_folders);
     }
+    stop_editor_background_tasks(g_editor);
     
     if (g_input_group) {
         lv_group_delete(g_input_group);
@@ -1216,6 +1218,7 @@ void run_app(App& app) {
         handle_search_navigation();
         handle_text_selection();
         handle_clipboard();
+        process_pending_word_count(g_editor, 120);
         
         process_pending_saves(g_editor, DEBOUNCE_DELAY, g_sidebar.folder_data.collapsed_folders);
         process_rename_save(g_sidebar, g_editor, RENAME_DEBOUNCE_DELAY);
