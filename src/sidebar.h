@@ -44,8 +44,8 @@ struct SidebarState {
     SidebarFolderData folder_data;
     
     bool file_dialog_active = false;
-    int file_dialog_mode = 0;  // 0 = new file, 1 = move/rename
-    int file_dialog_selection = 0;  // 0=name, 1=dropdown, 2=OK, 3=Cancel
+    int file_dialog_mode = 0;  // 0 = new file, 1 = move/rename file, 2 = new folder, 3 = rename folder
+    int file_dialog_selection = 0;  // Dynamic: name, optional dropdown, OK, Cancel
     uint32_t file_dialog_close_time = 0;  // Timestamp when dialog was closed
     lv_obj_t* file_dialog = nullptr;
     lv_obj_t* file_dialog_name_input = nullptr;

@@ -242,6 +242,8 @@ static void handle_text_selection() {
     static KeyRepeatState ctrl_down_state;
     static KeyRepeatState ctrl_shift_up_state;
     static KeyRepeatState ctrl_shift_down_state;
+    static KeyRepeatState ctrl_shift_left_state;
+    static KeyRepeatState ctrl_shift_right_state;
     static KeyRepeatState ctrl_backspace_state;
     static KeyRepeatState ctrl_left_state;
     static KeyRepeatState ctrl_right_state;
@@ -297,13 +299,13 @@ static void handle_text_selection() {
     if (ctrl_left_state.should_act(ctrl_left, now)) {
         int32_t new_pos = find_prev_word_start(text, cur_pos);
         lv_textarea_set_cursor_pos(focused, new_pos);
-        g_selection_start = -1;
+        clear_selection_local(focused);
     }
     
     if (ctrl_right_state.should_act(ctrl_right, now)) {
         int32_t new_pos = find_next_word_end(text, text_len, cur_pos);
         lv_textarea_set_cursor_pos(focused, new_pos);
-        g_selection_start = -1;
+        clear_selection_local(focused);
     }
     
     if (ctrl_left || ctrl_right) return;
@@ -361,6 +363,8 @@ static void handle_text_selection() {
     // Handle Ctrl+Shift+Up/Down (extend selection to previous/next paragraph) with key repeat
     bool ctrl_shift_up = ctrl && shift && !alt && platform::is_key_pressed(platform::KeyCode::Up);
     bool ctrl_shift_down = ctrl && shift && !alt && platform::is_key_pressed(platform::KeyCode::Down);
+    bool ctrl_shift_left = ctrl && shift && !alt && platform::is_key_pressed(platform::KeyCode::Left);
+    bool ctrl_shift_right = ctrl && shift && !alt && platform::is_key_pressed(platform::KeyCode::Right);
     
     if (ctrl_shift_up_state.should_act(ctrl_shift_up, now)) {
         if (g_selection_start < 0) g_selection_start = cur_pos;
@@ -386,7 +390,32 @@ static void handle_text_selection() {
         last_cursor_pos = new_pos;
     }
     
-    if (ctrl_up || ctrl_down || ctrl_shift_up || ctrl_shift_down) {
+    // Handle Ctrl+Shift+Left/Right (extend selection by word) with key repeat
+    if (ctrl_shift_left_state.should_act(ctrl_shift_left, now)) {
+        if (g_selection_start < 0) g_selection_start = cur_pos;
+        int32_t new_pos = find_prev_word_start(text, cur_pos);
+        lv_textarea_set_cursor_pos(focused, new_pos);
+        uint32_t sel_start = (g_selection_start < new_pos) ? g_selection_start : new_pos;
+        uint32_t sel_end = (g_selection_start < new_pos) ? new_pos : g_selection_start;
+        lv_label_set_text_selection_start(label, sel_start);
+        lv_label_set_text_selection_end(label, sel_end);
+        lv_obj_invalidate(focused);
+        last_cursor_pos = new_pos;
+    }
+    
+    if (ctrl_shift_right_state.should_act(ctrl_shift_right, now)) {
+        if (g_selection_start < 0) g_selection_start = cur_pos;
+        int32_t new_pos = find_next_word_end(text, text_len, cur_pos);
+        lv_textarea_set_cursor_pos(focused, new_pos);
+        uint32_t sel_start = (g_selection_start < new_pos) ? g_selection_start : new_pos;
+        uint32_t sel_end = (g_selection_start < new_pos) ? new_pos : g_selection_start;
+        lv_label_set_text_selection_start(label, sel_start);
+        lv_label_set_text_selection_end(label, sel_end);
+        lv_obj_invalidate(focused);
+        last_cursor_pos = new_pos;
+    }
+    
+    if (ctrl_up || ctrl_down || ctrl_shift_up || ctrl_shift_down || ctrl_shift_left || ctrl_shift_right) {
         return;
     }
     
@@ -619,33 +648,37 @@ static void handle_sidebar_keyboard() {
             } else if (!g_sidebar.new_file_selected && !g_sidebar.renaming && 
                        g_sidebar.selected_index >= 0 && g_sidebar.selected_index < display_count) {
                 last_nav_time = now;
-                start_rename(g_sidebar, g_editor);
-                if (g_sidebar.rename_textarea) {
-                    lv_group_add_obj(g_input_group, g_sidebar.rename_textarea);
-                    lv_group_focus_obj(g_sidebar.rename_textarea);
+                const SidebarItem& item = g_sidebar.folder_data.display_items[g_sidebar.selected_index];
+                if (item.is_folder()) {
+                    show_file_dialog(g_sidebar, g_editor, FILE_DIALOG_MODE_RENAME_FOLDER);
+                    if (g_sidebar.file_dialog_name_input) {
+                        lv_group_add_obj(g_input_group, g_sidebar.file_dialog_name_input);
+                        lv_group_focus_obj(g_sidebar.file_dialog_name_input);
+                    }
+                } else {
+                    start_rename(g_sidebar, g_editor);
+                    if (g_sidebar.rename_textarea) {
+                        lv_group_add_obj(g_input_group, g_sidebar.rename_textarea);
+                        lv_group_focus_obj(g_sidebar.rename_textarea);
+                    }
                 }
             }
         }
         
-        // Tab key: toggle folder open/close, or open move/rename dialog for files
+        // Tab key: rename selected file/folder
         if (platform::is_key_pressed(platform::KeyCode::Tab) && !g_sidebar.searching && !g_sidebar.renaming && 
             !g_sidebar.new_file_selected && !g_sidebar.new_folder_selected) {
             last_nav_time = now;
             if (g_sidebar.selected_index >= 0 && g_sidebar.selected_index < display_count) {
                 const SidebarItem& item = g_sidebar.folder_data.display_items[g_sidebar.selected_index];
                 if (item.is_folder()) {
-                    // Toggle folder expansion (collapsed_folders tracks closed folders)
-                    if (g_sidebar.folder_data.collapsed_folders.find(item.name) != 
-                        g_sidebar.folder_data.collapsed_folders.end()) {
-                        g_sidebar.folder_data.collapsed_folders.erase(item.name);
-                    } else {
-                        g_sidebar.folder_data.collapsed_folders.insert(item.name);
+                    show_file_dialog(g_sidebar, g_editor, FILE_DIALOG_MODE_RENAME_FOLDER);
+                    if (g_sidebar.file_dialog_name_input) {
+                        lv_group_add_obj(g_input_group, g_sidebar.file_dialog_name_input);
+                        lv_group_focus_obj(g_sidebar.file_dialog_name_input);
                     }
-                    g_editor.state_pending_save = true;
-                    g_editor.state_change_time = lv_tick_get();
-                    refresh_file_list_ui(g_sidebar, g_editor);
                 } else {
-                    show_file_dialog(g_sidebar, g_editor, 1);
+                    show_file_dialog(g_sidebar, g_editor, FILE_DIALOG_MODE_MOVE_RENAME_FILE);
                     // Add the name input to the input group and focus it
                     if (g_sidebar.file_dialog_name_input) {
                         lv_group_add_obj(g_input_group, g_sidebar.file_dialog_name_input);
@@ -664,12 +697,13 @@ static void handle_sidebar_keyboard() {
                 }
                 commit_rename(g_sidebar, g_editor);
             } else if (g_sidebar.new_folder_selected) {
-                create_folder(g_editor.user_files_dir);
-                scan_folders_and_files(g_sidebar.folder_data, g_editor.user_files_dir);
-                filter_folder_entries(g_sidebar.folder_data, std::string(g_sidebar.search_buffer, g_sidebar.search_len));
-                refresh_file_list_ui(g_sidebar, g_editor);
+                show_file_dialog(g_sidebar, g_editor, FILE_DIALOG_MODE_NEW_FOLDER);
+                if (g_sidebar.file_dialog_name_input) {
+                    lv_group_add_obj(g_input_group, g_sidebar.file_dialog_name_input);
+                    lv_group_focus_obj(g_sidebar.file_dialog_name_input);
+                }
             } else if (g_sidebar.new_file_selected) {
-                show_file_dialog(g_sidebar, g_editor, 0);
+                show_file_dialog(g_sidebar, g_editor, FILE_DIALOG_MODE_NEW_FILE);
                 // Add the name input to the input group and focus it
                 if (g_sidebar.file_dialog_name_input) {
                     lv_group_add_obj(g_input_group, g_sidebar.file_dialog_name_input);

@@ -7,6 +7,10 @@
 #include <cstring>
 #include <fstream>
 
+static bool dialog_has_folder_dropdown(int mode) {
+    return mode == FILE_DIALOG_MODE_NEW_FILE || mode == FILE_DIALOG_MODE_MOVE_RENAME_FILE;
+}
+
 static void build_dropdown_options(SidebarState& sidebar, std::string& options) {
     options = "(root)";
     for (const auto& folder : sidebar.folder_data.folders) {
@@ -33,16 +37,22 @@ static std::string get_folder_from_index(SidebarState& sidebar, int index) {
 
 void show_file_dialog(SidebarState& sidebar, EditorState& editor, int mode) {
     const Theme& theme = get_theme(editor.dark_theme);
+    const bool has_folder_dropdown = dialog_has_folder_dropdown(mode);
     
     sidebar.file_dialog_active = true;
     sidebar.file_dialog_mode = mode;
     sidebar.file_dialog_selection = 0;
     
+    if (sidebar.file_dialog) {
+        lv_obj_delete(sidebar.file_dialog);
+        sidebar.file_dialog = nullptr;
+    }
+    
     lv_obj_t* parent = lv_obj_get_parent(sidebar.sidebar_obj);
     
     sidebar.file_dialog = lv_obj_create(parent);
     lv_obj_remove_style_all(sidebar.file_dialog);
-    lv_obj_set_size(sidebar.file_dialog, 300, 220);
+    lv_obj_set_size(sidebar.file_dialog, 300, has_folder_dropdown ? 180 : 130);
     lv_obj_center(sidebar.file_dialog);
     lv_obj_set_style_bg_color(sidebar.file_dialog, theme.sidebar_bg, 0);
     lv_obj_set_style_bg_opa(sidebar.file_dialog, LV_OPA_COVER, 0);
@@ -58,7 +68,16 @@ void show_file_dialog(SidebarState& sidebar, EditorState& editor, int mode) {
     lv_obj_set_style_pad_row(sidebar.file_dialog, 12, 0);
     
     lv_obj_t* title = lv_label_create(sidebar.file_dialog);
-    const char* title_text = (mode == 0) ? "New File" : "Move / Rename";
+    const char* title_text = "Move / Rename";
+    if (mode == FILE_DIALOG_MODE_NEW_FILE) {
+        title_text = "New File";
+    } else if (mode == FILE_DIALOG_MODE_MOVE_RENAME_FILE) {
+        title_text = "Move / Rename";
+    } else if (mode == FILE_DIALOG_MODE_NEW_FOLDER) {
+        title_text = "New Folder";
+    } else if (mode == FILE_DIALOG_MODE_RENAME_FOLDER) {
+        title_text = "Rename Folder";
+    }
     lv_label_set_text(title, title_text);
     lv_obj_set_style_text_color(title, theme.sidebar_btn_text, 0);
     lv_obj_set_style_text_font(title, &lv_font_montserrat_18, 0);
@@ -89,33 +108,36 @@ void show_file_dialog(SidebarState& sidebar, EditorState& editor, int mode) {
     lv_obj_set_style_border_side(sidebar.file_dialog_name_input, LV_BORDER_SIDE_LEFT, LV_PART_CURSOR);
     lv_obj_set_style_bg_opa(sidebar.file_dialog_name_input, LV_OPA_TRANSP, LV_PART_CURSOR);
     
-    lv_obj_t* folder_label = lv_label_create(sidebar.file_dialog);
-    lv_label_set_text(folder_label, "Folder:");
-    lv_obj_set_style_text_color(folder_label, theme.text_dim, 0);
-    lv_obj_set_style_text_font(folder_label, &lv_font_montserrat_14, 0);
+    if (has_folder_dropdown) {
+        lv_obj_t* folder_label = lv_label_create(sidebar.file_dialog);
+        lv_label_set_text(folder_label, "Folder:");
+        lv_obj_set_style_text_color(folder_label, theme.text_dim, 0);
+        lv_obj_set_style_text_font(folder_label, &lv_font_montserrat_14, 0);
+        
+        sidebar.file_dialog_folder_dropdown = lv_dropdown_create(sidebar.file_dialog);
+        lv_obj_set_size(sidebar.file_dialog_folder_dropdown, LV_PCT(100), 36);
+        lv_obj_set_style_bg_color(sidebar.file_dialog_folder_dropdown, theme.search_input_bg, 0);
+        lv_obj_set_style_bg_opa(sidebar.file_dialog_folder_dropdown, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(sidebar.file_dialog_folder_dropdown, 1, 0);
+        lv_obj_set_style_border_color(sidebar.file_dialog_folder_dropdown, theme.sidebar_btn_hover, 0);
+        lv_obj_set_style_radius(sidebar.file_dialog_folder_dropdown, 4, 0);
+        lv_obj_set_style_text_color(sidebar.file_dialog_folder_dropdown, theme.sidebar_btn_text, 0);
+        lv_obj_set_style_text_font(sidebar.file_dialog_folder_dropdown, &lv_font_montserrat_16, 0);
+        lv_obj_set_style_pad_left(sidebar.file_dialog_folder_dropdown, 8, 0);
+        
+        std::string options;
+        build_dropdown_options(sidebar, options);
+        lv_dropdown_set_options(sidebar.file_dialog_folder_dropdown, options.c_str());
+    } else {
+        sidebar.file_dialog_folder_dropdown = nullptr;
+    }
     
-    sidebar.file_dialog_folder_dropdown = lv_dropdown_create(sidebar.file_dialog);
-    lv_obj_set_size(sidebar.file_dialog_folder_dropdown, LV_PCT(100), 36);
-    lv_obj_set_style_bg_color(sidebar.file_dialog_folder_dropdown, theme.search_input_bg, 0);
-    lv_obj_set_style_bg_opa(sidebar.file_dialog_folder_dropdown, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(sidebar.file_dialog_folder_dropdown, 1, 0);
-    lv_obj_set_style_border_color(sidebar.file_dialog_folder_dropdown, theme.sidebar_btn_hover, 0);
-    lv_obj_set_style_radius(sidebar.file_dialog_folder_dropdown, 4, 0);
-    lv_obj_set_style_text_color(sidebar.file_dialog_folder_dropdown, theme.sidebar_btn_text, 0);
-    lv_obj_set_style_text_font(sidebar.file_dialog_folder_dropdown, &lv_font_montserrat_16, 0);
-    lv_obj_set_style_pad_left(sidebar.file_dialog_folder_dropdown, 8, 0);
-    
-    std::string options;
-    build_dropdown_options(sidebar, options);
-    lv_dropdown_set_options(sidebar.file_dialog_folder_dropdown, options.c_str());
-    
-    std::string current_folder = get_current_folder(editor.current_file_path, editor.user_files_dir);
-    int folder_index = get_folder_index(sidebar, current_folder);
-    
-    if (mode == 0) {
+    if (mode == FILE_DIALOG_MODE_NEW_FILE) {
+        std::string current_folder = get_current_folder(editor.current_file_path, editor.user_files_dir);
+        int folder_index = get_folder_index(sidebar, current_folder);
         lv_textarea_set_text(sidebar.file_dialog_name_input, "Untitled");
         lv_dropdown_set_selected(sidebar.file_dialog_folder_dropdown, folder_index);
-    } else {
+    } else if (mode == FILE_DIALOG_MODE_MOVE_RENAME_FILE) {
         // Get the selected item from display_items (which includes folders)
         if (sidebar.selected_index >= 0 && sidebar.selected_index < (int)sidebar.folder_data.display_items.size()) {
             const SidebarItem& item = sidebar.folder_data.display_items[sidebar.selected_index];
@@ -129,38 +151,19 @@ void show_file_dialog(SidebarState& sidebar, EditorState& editor, int mode) {
                 lv_dropdown_set_selected(sidebar.file_dialog_folder_dropdown, entry_folder_index);
             }
         }
+    } else if (mode == FILE_DIALOG_MODE_NEW_FOLDER) {
+        lv_textarea_set_text(sidebar.file_dialog_name_input, "New Folder");
+    } else if (mode == FILE_DIALOG_MODE_RENAME_FOLDER) {
+        if (sidebar.selected_index >= 0 && sidebar.selected_index < (int)sidebar.folder_data.display_items.size()) {
+            const SidebarItem& item = sidebar.folder_data.display_items[sidebar.selected_index];
+            if (item.is_folder()) {
+                lv_textarea_set_text(sidebar.file_dialog_name_input, item.name.c_str());
+            }
+        }
     }
     
-    lv_obj_t* spacer = lv_obj_create(sidebar.file_dialog);
-    lv_obj_remove_style_all(spacer);
-    lv_obj_set_size(spacer, LV_PCT(100), 12);
-    
-    lv_obj_t* btn_container = lv_obj_create(sidebar.file_dialog);
-    lv_obj_remove_style_all(btn_container);
-    lv_obj_set_size(btn_container, LV_PCT(100), 36);
-    lv_obj_set_flex_flow(btn_container, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(btn_container, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(btn_container, 12, 0);
-    
-    sidebar.file_dialog_cancel_btn = lv_btn_create(btn_container);
-    lv_obj_set_size(sidebar.file_dialog_cancel_btn, 80, 32);
-    lv_obj_set_style_bg_color(sidebar.file_dialog_cancel_btn, theme.sidebar_btn_normal, 0);
-    lv_obj_set_style_radius(sidebar.file_dialog_cancel_btn, 4, 0);
-    lv_obj_t* cancel_label = lv_label_create(sidebar.file_dialog_cancel_btn);
-    lv_label_set_text(cancel_label, "Cancel");
-    lv_obj_set_style_text_color(cancel_label, theme.sidebar_btn_text, 0);
-    lv_obj_set_style_text_font(cancel_label, &lv_font_montserrat_14, 0);
-    lv_obj_center(cancel_label);
-    
-    sidebar.file_dialog_ok_btn = lv_btn_create(btn_container);
-    lv_obj_set_size(sidebar.file_dialog_ok_btn, 80, 32);
-    lv_obj_set_style_bg_color(sidebar.file_dialog_ok_btn, theme.sidebar_selected, 0);
-    lv_obj_set_style_radius(sidebar.file_dialog_ok_btn, 4, 0);
-    lv_obj_t* ok_label = lv_label_create(sidebar.file_dialog_ok_btn);
-    lv_label_set_text(ok_label, "OK");
-    lv_obj_set_style_text_color(ok_label, theme.sidebar_btn_text, 0);
-    lv_obj_set_style_text_font(ok_label, &lv_font_montserrat_14, 0);
-    lv_obj_center(ok_label);
+    sidebar.file_dialog_ok_btn = nullptr;
+    sidebar.file_dialog_cancel_btn = nullptr;
     
     lv_obj_set_style_border_color(sidebar.file_dialog_name_input, lv_color_white(), 0);
     lv_textarea_set_cursor_pos(sidebar.file_dialog_name_input, LV_TEXTAREA_CURSOR_LAST);
@@ -221,16 +224,6 @@ static void update_dialog_selection_ui(SidebarState& sidebar, EditorState& edito
             lv_dropdown_close(sidebar.file_dialog_folder_dropdown);
         }
     }
-    if (sidebar.file_dialog_ok_btn) {
-        lv_obj_set_style_border_width(sidebar.file_dialog_ok_btn,
-            sidebar.file_dialog_selection == 2 ? 2 : 0, 0);
-        lv_obj_set_style_border_color(sidebar.file_dialog_ok_btn, lv_color_white(), 0);
-    }
-    if (sidebar.file_dialog_cancel_btn) {
-        lv_obj_set_style_border_width(sidebar.file_dialog_cancel_btn,
-            sidebar.file_dialog_selection == 3 ? 2 : 0, 0);
-        lv_obj_set_style_border_color(sidebar.file_dialog_cancel_btn, lv_color_white(), 0);
-    }
 }
 
 void handle_file_dialog_keyboard(SidebarState& sidebar, EditorState& editor) {
@@ -250,6 +243,9 @@ void handle_file_dialog_keyboard(SidebarState& sidebar, EditorState& editor) {
     
     if (!nav_debounce) return;
     
+    const bool has_folder_dropdown = (sidebar.file_dialog_folder_dropdown != nullptr);
+    const int max_selection = has_folder_dropdown ? 1 : 0;
+    
     platform::KeyModifiers modifiers = platform::get_key_modifiers();
     bool close_shortcut = platform::is_key_pressed(platform::KeyCode::Escape) ||
                           (platform::is_key_pressed(platform::KeyCode::Grave) && !modifiers.shift);
@@ -264,17 +260,13 @@ void handle_file_dialog_keyboard(SidebarState& sidebar, EditorState& editor) {
     if (platform::is_key_pressed(platform::KeyCode::Enter)) {
         last_nav_time = now;
         dialog_open_time = 0;
-        if (sidebar.file_dialog_selection == 3) {
-            hide_file_dialog(sidebar);
-        } else {
-            confirm_file_dialog(sidebar, editor);
-        }
+        confirm_file_dialog(sidebar, editor);
         return;
     }
     
     if (platform::is_key_pressed(platform::KeyCode::Up)) {
         last_nav_time = now;
-        if (sidebar.file_dialog_selection == 1) {
+        if (has_folder_dropdown && sidebar.file_dialog_selection == 1) {
             uint32_t sel = lv_dropdown_get_selected(sidebar.file_dialog_folder_dropdown);
             if (sel > 0) {
                 lv_dropdown_set_selected(sidebar.file_dialog_folder_dropdown, sel - 1);
@@ -291,20 +283,20 @@ void handle_file_dialog_keyboard(SidebarState& sidebar, EditorState& editor) {
     
     if (platform::is_key_pressed(platform::KeyCode::Down)) {
         last_nav_time = now;
-        if (sidebar.file_dialog_selection == 1) {
+        if (has_folder_dropdown && sidebar.file_dialog_selection == 1) {
             uint32_t sel = lv_dropdown_get_selected(sidebar.file_dialog_folder_dropdown);
             uint32_t count = lv_dropdown_get_option_count(sidebar.file_dialog_folder_dropdown);
             if (sel < count - 1) {
                 lv_dropdown_set_selected(sidebar.file_dialog_folder_dropdown, sel + 1);
             }
-        } else if (sidebar.file_dialog_selection < 3) {
+        } else if (sidebar.file_dialog_selection < max_selection) {
             sidebar.file_dialog_selection++;
             update_dialog_selection_ui(sidebar, editor);
         }
         return;
     }
     
-    if (sidebar.file_dialog_selection == 1) {
+    if (has_folder_dropdown && sidebar.file_dialog_selection == 1) {
         if (platform::is_key_pressed(platform::KeyCode::Left)) {
             last_nav_time = now;
             uint32_t sel = lv_dropdown_get_selected(sidebar.file_dialog_folder_dropdown);
@@ -324,24 +316,6 @@ void handle_file_dialog_keyboard(SidebarState& sidebar, EditorState& editor) {
         }
     }
     
-    if (sidebar.file_dialog_selection == 0 || sidebar.file_dialog_selection == 2 || sidebar.file_dialog_selection == 3) {
-        if (platform::is_key_pressed(platform::KeyCode::Left)) {
-            last_nav_time = now;
-            if (sidebar.file_dialog_selection == 3) {
-                sidebar.file_dialog_selection = 2;
-                update_dialog_selection_ui(sidebar, editor);
-            }
-            return;
-        }
-        if (platform::is_key_pressed(platform::KeyCode::Right)) {
-            last_nav_time = now;
-            if (sidebar.file_dialog_selection == 2) {
-                sidebar.file_dialog_selection = 3;
-                update_dialog_selection_ui(sidebar, editor);
-            }
-            return;
-        }
-    }
 }
 
 void confirm_file_dialog(SidebarState& sidebar, EditorState& editor) {
@@ -351,10 +325,13 @@ void confirm_file_dialog(SidebarState& sidebar, EditorState& editor) {
         return;
     }
     
-    uint32_t folder_idx = lv_dropdown_get_selected(sidebar.file_dialog_folder_dropdown);
-    std::string folder = get_folder_from_index(sidebar, folder_idx);
+    std::string folder;
+    if (sidebar.file_dialog_folder_dropdown) {
+        uint32_t folder_idx = lv_dropdown_get_selected(sidebar.file_dialog_folder_dropdown);
+        folder = get_folder_from_index(sidebar, (int)folder_idx);
+    }
     
-    if (sidebar.file_dialog_mode == 0) {
+    if (sidebar.file_dialog_mode == FILE_DIALOG_MODE_NEW_FILE) {
         std::string filename = name;
         if (filename.size() < 4 || filename.substr(filename.size() - 4) != ".txt") {
             filename += ".txt";
@@ -404,7 +381,10 @@ void confirm_file_dialog(SidebarState& sidebar, EditorState& editor) {
         
         load_file_into_editor(editor, new_path.c_str());
         hide_file_dialog(sidebar);
-    } else {
+        return;
+    }
+    
+    if (sidebar.file_dialog_mode == FILE_DIALOG_MODE_MOVE_RENAME_FILE) {
         // Get the selected item from display_items (which includes folders)
         if (sidebar.selected_index >= 0 && sidebar.selected_index < (int)sidebar.folder_data.display_items.size()) {
             const SidebarItem& item = sidebar.folder_data.display_items[sidebar.selected_index];
@@ -461,6 +441,75 @@ void confirm_file_dialog(SidebarState& sidebar, EditorState& editor) {
                 
                 refresh_file_list_ui(sidebar, editor);
             }
+        }
+        hide_file_dialog(sidebar);
+        return;
+    }
+    
+    if (sidebar.file_dialog_mode == FILE_DIALOG_MODE_NEW_FOLDER) {
+        std::string created_folder = create_folder(editor.user_files_dir, name);
+        
+        scan_folders_and_files(sidebar.folder_data, editor.user_files_dir);
+        filter_folder_entries(sidebar.folder_data, std::string(sidebar.search_buffer, sidebar.search_len));
+        sidebar.folder_data.build_display_items(sidebar.searching);
+        
+        for (int i = 0; i < (int)sidebar.folder_data.display_items.size(); i++) {
+            const SidebarItem& di = sidebar.folder_data.display_items[i];
+            if (di.is_folder() && di.name == created_folder) {
+                sidebar.selected_index = i;
+                break;
+            }
+        }
+        
+        refresh_file_list_ui(sidebar, editor);
+        hide_file_dialog(sidebar);
+        return;
+    }
+    
+    if (sidebar.file_dialog_mode == FILE_DIALOG_MODE_RENAME_FOLDER) {
+        if (sidebar.selected_index >= 0 && sidebar.selected_index < (int)sidebar.folder_data.display_items.size()) {
+            const SidebarItem& item = sidebar.folder_data.display_items[sidebar.selected_index];
+            if (!item.is_folder()) {
+                hide_file_dialog(sidebar);
+                return;
+            }
+            
+            std::string old_name = item.name;
+            std::string new_name = name;
+            std::string selected_folder_name = old_name;
+            
+            if (old_name != new_name && rename_folder(editor.user_files_dir, old_name, new_name)) {
+                selected_folder_name = new_name;
+                
+                if (sidebar.folder_data.collapsed_folders.find(old_name) != sidebar.folder_data.collapsed_folders.end()) {
+                    sidebar.folder_data.collapsed_folders.erase(old_name);
+                    sidebar.folder_data.collapsed_folders.insert(new_name);
+                    editor.state_pending_save = true;
+                    editor.state_change_time = lv_tick_get();
+                }
+                
+                std::string old_prefix = editor.user_files_dir + "/" + old_name + "/";
+                if (editor.current_file_path.rfind(old_prefix, 0) == 0) {
+                    std::string suffix = editor.current_file_path.substr(old_prefix.size());
+                    editor.current_file_path = editor.user_files_dir + "/" + new_name + "/" + suffix;
+                    editor.temp_file_path = editor.current_file_path + ".tmp";
+                    update_filename_display(editor);
+                }
+            }
+            
+            scan_folders_and_files(sidebar.folder_data, editor.user_files_dir);
+            filter_folder_entries(sidebar.folder_data, std::string(sidebar.search_buffer, sidebar.search_len));
+            sidebar.folder_data.build_display_items(sidebar.searching);
+            
+            for (int i = 0; i < (int)sidebar.folder_data.display_items.size(); i++) {
+                const SidebarItem& di = sidebar.folder_data.display_items[i];
+                if (di.is_folder() && di.name == selected_folder_name) {
+                    sidebar.selected_index = i;
+                    break;
+                }
+            }
+            
+            refresh_file_list_ui(sidebar, editor);
         }
         hide_file_dialog(sidebar);
     }

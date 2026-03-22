@@ -45,15 +45,12 @@ static void file_btn_click_cb(lv_event_t* e) {
 
 static void new_file_btn_click_cb(lv_event_t* e) {
     if (!g_editor || !g_sidebar) return;
-    show_file_dialog(*g_sidebar, *g_editor, 0);
+    show_file_dialog(*g_sidebar, *g_editor, FILE_DIALOG_MODE_NEW_FILE);
 }
 
 static void new_folder_btn_click_cb(lv_event_t* e) {
     if (!g_editor || !g_sidebar) return;
-    create_folder(g_editor->user_files_dir);
-    scan_folders_and_files(g_sidebar->folder_data, g_editor->user_files_dir);
-    filter_folder_entries(g_sidebar->folder_data, std::string(g_sidebar->search_buffer, g_sidebar->search_len));
-    refresh_file_list_ui(*g_sidebar, *g_editor);
+    show_file_dialog(*g_sidebar, *g_editor, FILE_DIALOG_MODE_NEW_FOLDER);
 }
 
 static void search_input_cb(lv_event_t* e) {
