@@ -52,6 +52,7 @@ constexpr int kMaxEventDevices = 32;
 KeyCode linux_key_to_keycode(uint16_t code) {
     switch (code) {
         case KEY_A: return KeyCode::A;
+        case KEY_P: return KeyCode::P;
         case KEY_C: return KeyCode::C;
         case KEY_F: return KeyCode::F;
         case KEY_T: return KeyCode::T;
@@ -544,6 +545,7 @@ bool is_key_pressed(KeyCode key) {
 #if defined(__linux__)
     switch (key) {
         case KeyCode::A: return raw_pressed(KEY_A);
+        case KeyCode::P: return raw_pressed(KEY_P);
         case KeyCode::C: return raw_pressed(KEY_C);
         case KeyCode::F: return raw_pressed(KEY_F);
         case KeyCode::T: return raw_pressed(KEY_T);

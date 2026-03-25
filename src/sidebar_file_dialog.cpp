@@ -52,7 +52,7 @@ void show_file_dialog(SidebarState& sidebar, EditorState& editor, int mode) {
     
     sidebar.file_dialog = lv_obj_create(parent);
     lv_obj_remove_style_all(sidebar.file_dialog);
-    lv_obj_set_size(sidebar.file_dialog, 300, has_folder_dropdown ? 180 : 130);
+    lv_obj_set_size(sidebar.file_dialog, 300, has_folder_dropdown ? 220 : 190);
     lv_obj_center(sidebar.file_dialog);
     lv_obj_set_style_bg_color(sidebar.file_dialog, theme.sidebar_bg, 0);
     lv_obj_set_style_bg_opa(sidebar.file_dialog, LV_OPA_COVER, 0);

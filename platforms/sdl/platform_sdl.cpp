@@ -18,6 +18,7 @@ bool g_has_last_event = false;
 KeyCode scancode_to_key(SDL_Scancode scancode) {
     switch (scancode) {
         case SDL_SCANCODE_A: return KeyCode::A;
+        case SDL_SCANCODE_P: return KeyCode::P;
         case SDL_SCANCODE_C: return KeyCode::C;
         case SDL_SCANCODE_F: return KeyCode::F;
         case SDL_SCANCODE_T: return KeyCode::T;
@@ -167,6 +168,7 @@ KeyModifiers get_key_modifiers() {
 bool is_key_pressed(KeyCode key) {
     switch (key) {
         case KeyCode::A: return is_scancode_pressed(SDL_SCANCODE_A);
+        case KeyCode::P: return is_scancode_pressed(SDL_SCANCODE_P);
         case KeyCode::C: return is_scancode_pressed(SDL_SCANCODE_C);
         case KeyCode::F: return is_scancode_pressed(SDL_SCANCODE_F);
         case KeyCode::T: return is_scancode_pressed(SDL_SCANCODE_T);

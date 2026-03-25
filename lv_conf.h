@@ -100,4 +100,9 @@
 #define LV_USE_EVDEV 0
 #endif
 
+/*====================
+   EXTRA LIBS
+  *====================*/
+#define LV_USE_QRCODE 1
+
 #endif

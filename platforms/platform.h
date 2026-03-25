@@ -9,6 +9,7 @@ namespace platform {
 enum class KeyCode {
     Unknown = 0,
     A,
+    P,
     C,
     F,
     T,

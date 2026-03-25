@@ -31,6 +31,7 @@ void ensure_shortcuts_file(const std::string& user_files_dir) {
         file << "===========================\n\n";
         file << "Ctrl + F          Search in document\n";
         file << "Ctrl + T          Toggle dark/light theme\n";
+        file << "Ctrl + P          Export as QR codes\n";
         file << "Ctrl + +          Increase font size\n";
         file << "Ctrl + -          Decrease font size\n";
         file << "Ctrl + Up         Jump to previous paragraph\n";
