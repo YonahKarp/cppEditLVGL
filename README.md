@@ -15,98 +15,64 @@ A distraction-free text editor built with LVGL, designed for embedded MCUs. This
 ## Requirements
 
 - CMake 3.14+
-- SDL2
 - C++17 compiler
+- pthreads
+
+### Platform-specific requirements
+
+- `PLATFORM=sdl` (default): SDL2 + `pkg-config`
+- `PLATFORM=linux_fb`: Linux framebuffer + evdev devices (`/dev/fb*`, `/dev/input/event*`)
 
 ## Building
 
-### macOS
+### macOS (SDL)
 
 ```bash
 # Install dependencies
-brew install sdl2
+brew install sdl2 pkg-config
 
-# Build
-mkdir build
-cd build
-cmake ..
-make
-./justtype_lvgl
+# Configure + build
+cmake -S . -B build -DPLATFORM=sdl
+cmake --build build -j
+
+# Run
+./build/justtype_lvgl
 ```
 
-### Linux
+### Linux (SDL, recommended)
 
 ```bash
-# Install dependencies (Ubuntu/Debian)
-sudo apt install libsdl2-dev
+# Ubuntu/Debian dependencies
+sudo apt update
+sudo apt install -y build-essential cmake pkg-config libsdl2-dev
 
-# Build
-mkdir build
-cd build
-cmake ..
-make
-./justtype_lvgl
+# Configure + build
+cmake -S . -B build -DPLATFORM=sdl
+cmake --build build -j
+
+# Run
+./build/justtype_lvgl
 ```
 
-### Embedded MCU
+### Linux (Framebuffer + evdev)
 
-For embedded targets, you'll need to:
+This target does **not** use SDL. It is intended for direct Linux console/framebuffer usage.
 
-1. Replace the SDL drivers with your MCU's display and input drivers
-2. Configure `lv_conf.h` for your target (memory, display settings, etc.)
-3. Remove SDL-related code from `app.cpp` and replace with your HAL
+```bash
+# Ubuntu/Debian dependencies
+sudo apt update
+sudo apt install -y build-essential cmake linux-libc-dev
 
-## Keyboard Shortcuts
+# Configure + build
+cmake -S . -B build-fb -DPLATFORM=linux_fb
+cmake --build build-fb -j
 
-| Shortcut | Action |
-|----------|--------|
-| Meta (GUI key) | Toggle sidebar |
-| Ctrl + F | Search in document |
-| Ctrl + T | Toggle dark/light theme |
-| Ctrl + + | Increase font size |
-| Ctrl + - | Decrease font size |
-| Ctrl + A | Select all |
-| Ctrl + Z | Undo |
-| Escape | Close sidebar/search |
-| Ctrl+Shift+Alt+Escape | Quit application |
-
-### Search Mode
-
-| Shortcut | Action |
-|----------|--------|
-| Enter | Next match |
-| Shift + Enter | Previous match |
-| Escape | Close search |
-
-## Project Structure
-
-```
-justTypeLVGL/
-├── CMakeLists.txt          # Build configuration
-├── lv_conf.h               # LVGL configuration
-├── README.md               # This file
-├── fonts/                  # Font files (optional)
-└── src/
-    ├── main.cpp            # Entry point
-    ├── app.h/cpp           # Application initialization
-    ├── editor.h/cpp        # Text editor component
-    ├── sidebar.h/cpp       # File management sidebar
-    ├── search.h/cpp        # Search functionality
-    ├── file_manager.h/cpp  # File system operations
-    └── theme.h             # Color themes
+# Run (usually needs device access to /dev/fb0 and /dev/input/event*)
+sudo ./build-fb/justtype_lvgl
 ```
 
-## Porting to Embedded
+Optional runtime device overrides:
 
-The project uses LVGL's SDL drivers for desktop development. To port to an embedded target:
-
-1. **Display Driver**: Replace `lv_sdl_window_create()` with your display driver
-2. **Input Driver**: Replace `lv_sdl_mouse_create()` and `lv_sdl_keyboard_create()` with your input drivers
-3. **Tick Source**: Implement `lv_tick_inc()` from your timer interrupt
-4. **File System**: Modify file operations in `file_manager.cpp` for your storage
-
-See the [LVGL porting guide](https://docs.lvgl.io/master/porting/index.html) for details.
-
-## License
-
-MIT License
+```bash
+JUSTTYPE_FBDEV=/dev/fb1 JUSTTYPE_EVDEV=/dev/input/event3 sudo ./build-fb/justtype_lvgl
+```
