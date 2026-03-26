@@ -419,7 +419,8 @@ bool qr_export_handle_event(const platform::PlatformEvent& event) {
     }
 
     if (event.type == platform::PlatformEvent::Type::KeyDown) {
-        if (event.key == platform::KeyCode::Escape) {
+        if (event.key == platform::KeyCode::Escape ||
+            event.key == platform::KeyCode::Grave) {
             qr_export_close();
         } else if (event.key == platform::KeyCode::Left || event.key == platform::KeyCode::Up) {
             g_qr_export.auto_cycle = false;
@@ -435,8 +436,14 @@ bool qr_export_handle_event(const platform::PlatformEvent& event) {
         return true;
     }
 
-    if (event.type == platform::PlatformEvent::Type::TextInput ||
-        event.type == platform::PlatformEvent::Type::KeyUp) {
+    if (event.type == platform::PlatformEvent::Type::TextInput) {
+        if (event.text[0] == '`' || event.text[0] == '~') {
+            qr_export_close();
+        }
+        return true;
+    }
+
+    if (event.type == platform::PlatformEvent::Type::KeyUp) {
         return true;
     }
 
