@@ -60,6 +60,109 @@ std::string base64_encode(const std::string& input) {
     return output;
 }
 
+char hex_upper(uint8_t value) {
+    return static_cast<char>((value < 10U) ? ('0' + value) : ('A' + (value - 10U)));
+}
+
+size_t find_max_qr_payload_len(lv_obj_t* qr_code) {
+    constexpr size_t kMaxProbeBytes = 2950;
+    std::string probe(kMaxProbeBytes, 'A');
+
+    size_t low = 1;
+    size_t high = kMaxProbeBytes;
+    size_t best = 0;
+    while (low <= high) {
+        size_t mid = low + (high - low) / 2;
+        lv_result_t result = lv_qrcode_update(qr_code, probe.data(), static_cast<uint32_t>(mid));
+        if (result == LV_RESULT_OK) {
+            best = mid;
+            low = mid + 1;
+        } else {
+            if (mid == 0) {
+                break;
+            }
+            high = mid - 1;
+        }
+    }
+    return best;
+}
+
+void append_percent_encoded_byte(std::string& out, uint8_t byte) {
+    out.push_back('%');
+    out.push_back(hex_upper(static_cast<uint8_t>((byte >> 4) & 0x0FU)));
+    out.push_back(hex_upper(static_cast<uint8_t>(byte & 0x0FU)));
+}
+
+bool is_qr_payload_safe_ascii(uint8_t byte) {
+    return byte >= 32U && byte <= 126U && byte != static_cast<uint8_t>('%') && byte != static_cast<uint8_t>('|');
+}
+
+bool encode_chunk_for_qr(
+    const std::string& text,
+    size_t start_index,
+    size_t max_encoded_len,
+    std::string& out_encoded,
+    size_t& out_raw_consumed
+) {
+    out_encoded.clear();
+    out_raw_consumed = 0;
+
+    size_t i = start_index;
+    while (i < text.size()) {
+        uint8_t byte = static_cast<uint8_t>(text[i]);
+        size_t add_len = is_qr_payload_safe_ascii(byte) ? 1U : 3U;
+        if (out_encoded.size() + add_len > max_encoded_len) {
+            break;
+        }
+
+        if (add_len == 1U) {
+            out_encoded.push_back(static_cast<char>(byte));
+        } else {
+            append_percent_encoded_byte(out_encoded, byte);
+        }
+        i++;
+        out_raw_consumed++;
+    }
+
+    return out_raw_consumed > 0;
+}
+
+bool build_qt2_encoded_chunks(
+    const std::string& text,
+    size_t qr_capacity,
+    size_t filename_b64_len,
+    size_t total_digits,
+    std::vector<std::string>& out_chunks
+) {
+    out_chunks.clear();
+    if (text.empty()) {
+        return true;
+    }
+
+    // Header format: JT2|<index>/<total>|<filename_b64>|<chunk_encoded>
+    size_t max_header_len = 4U + total_digits + 1U + total_digits + 1U + filename_b64_len + 1U;
+    if (max_header_len >= qr_capacity) {
+        return false;
+    }
+
+    size_t chunk_space = qr_capacity - max_header_len;
+    if (chunk_space == 0) {
+        return false;
+    }
+
+    size_t start = 0;
+    while (start < text.size()) {
+        std::string encoded;
+        size_t consumed = 0;
+        if (!encode_chunk_for_qr(text, start, chunk_space, encoded, consumed)) {
+            return false;
+        }
+        out_chunks.push_back(std::move(encoded));
+        start += consumed;
+    }
+    return true;
+}
+
 std::string basename_from_path(const std::string& path) {
     if (path.empty()) return "Untitled.txt";
     size_t slash = path.find_last_of("/\\");
@@ -218,28 +321,75 @@ void qr_export_open(const EditorState& editor) {
 
     lv_label_set_text(g_qr_export.title_label, "QR Export");
 
-    constexpr size_t kRawChunkBytes = 700;
-    size_t total_chunks = (text.empty() ? 1 : (text.size() + kRawChunkBytes - 1) / kRawChunkBytes);
-    std::string filename_b64 = base64_encode(g_qr_export.filename);
-    g_qr_export.payloads.reserve(total_chunks);
-    for (size_t i = 0; i < total_chunks; i++) {
-        size_t start = i * kRawChunkBytes;
-        std::string chunk = text.substr(start, std::min(kRawChunkBytes, text.size() - start));
-        std::string payload = "JT1|" + std::to_string(i + 1) + "/" + std::to_string(total_chunks) +
-                              "|" + filename_b64 + "|" + base64_encode(chunk);
-        g_qr_export.payloads.push_back(std::move(payload));
-    }
-
-    if (text.empty()) {
-        g_qr_export.payloads[0] = "JT1|1/1|" + filename_b64 + "|";
-    }
-
     g_qr_export.qr_code = lv_qrcode_create(g_qr_export.overlay);
     int32_t min_side = std::min(lv_obj_get_width(parent), lv_obj_get_height(parent));
-    int32_t qr_size = std::max(220, std::min(480, min_side - 140));
+    int32_t qr_size = std::max(260, min_side - 70);
     lv_qrcode_set_size(g_qr_export.qr_code, qr_size);
     lv_qrcode_set_dark_color(g_qr_export.qr_code, theme.edit_text);
     lv_qrcode_set_light_color(g_qr_export.qr_code, theme.edit_bg);
+
+    std::string filename_b64 = base64_encode(g_qr_export.filename);
+    size_t qr_capacity = find_max_qr_payload_len(g_qr_export.qr_code);
+    if (qr_capacity == 0) {
+        g_qr_export.ascii_error = true;
+        lv_label_set_text(g_qr_export.title_label, "QR Export Error");
+        g_qr_export.info_label = lv_label_create(g_qr_export.overlay);
+        lv_obj_set_width(g_qr_export.info_label, LV_PCT(95));
+        lv_label_set_long_mode(g_qr_export.info_label, LV_LABEL_LONG_WRAP);
+        lv_obj_set_style_text_color(g_qr_export.info_label, theme.edit_text, 0);
+        lv_obj_set_style_text_font(g_qr_export.info_label, &lv_font_montserrat_16, 0);
+        g_qr_export.error_message = "Unable to determine QR payload capacity for this display size.";
+        lv_label_set_text(g_qr_export.info_label, g_qr_export.error_message.c_str());
+        g_qr_export.hint_label = lv_label_create(g_qr_export.overlay);
+        lv_obj_set_style_text_color(g_qr_export.hint_label, theme.text_dim, 0);
+        lv_obj_set_style_text_font(g_qr_export.hint_label, &lv_font_montserrat_14, 0);
+        lv_label_set_text(g_qr_export.hint_label, "Press Esc to close");
+        return;
+    }
+
+    std::vector<std::string> encoded_chunks;
+    size_t assumed_digits = 1;
+    bool built = false;
+    for (int i = 0; i < 8; i++) {
+        if (!build_qt2_encoded_chunks(text, qr_capacity, filename_b64.size(), assumed_digits, encoded_chunks)) {
+            break;
+        }
+        size_t total_digits = std::to_string(std::max<size_t>(1, encoded_chunks.size())).size();
+        if (total_digits == assumed_digits) {
+            built = true;
+            break;
+        }
+        assumed_digits = total_digits;
+    }
+
+    if (!built) {
+        g_qr_export.ascii_error = true;
+        lv_label_set_text(g_qr_export.title_label, "QR Export Error");
+        g_qr_export.info_label = lv_label_create(g_qr_export.overlay);
+        lv_obj_set_width(g_qr_export.info_label, LV_PCT(95));
+        lv_label_set_long_mode(g_qr_export.info_label, LV_LABEL_LONG_WRAP);
+        lv_obj_set_style_text_color(g_qr_export.info_label, theme.edit_text, 0);
+        lv_obj_set_style_text_font(g_qr_export.info_label, &lv_font_montserrat_16, 0);
+        g_qr_export.error_message = "Display is too small for current QR export envelope.";
+        lv_label_set_text(g_qr_export.info_label, g_qr_export.error_message.c_str());
+        g_qr_export.hint_label = lv_label_create(g_qr_export.overlay);
+        lv_obj_set_style_text_color(g_qr_export.hint_label, theme.text_dim, 0);
+        lv_obj_set_style_text_font(g_qr_export.hint_label, &lv_font_montserrat_14, 0);
+        lv_label_set_text(g_qr_export.hint_label, "Press Esc to close");
+        return;
+    }
+
+    if (text.empty()) {
+        g_qr_export.payloads.push_back("JT2|1/1|" + filename_b64 + "|");
+    } else {
+        size_t total_chunks = encoded_chunks.size();
+        g_qr_export.payloads.reserve(total_chunks);
+        for (size_t i = 0; i < total_chunks; i++) {
+            std::string payload = "JT2|" + std::to_string(i + 1) + "/" + std::to_string(total_chunks) +
+                                  "|" + filename_b64 + "|" + encoded_chunks[i];
+            g_qr_export.payloads.push_back(std::move(payload));
+        }
+    }
 
     g_qr_export.info_label = lv_label_create(g_qr_export.overlay);
     lv_obj_set_style_text_color(g_qr_export.info_label, theme.edit_text, 0);
