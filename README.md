@@ -6,6 +6,12 @@
 
 A distraction-free text editor built with LVGL, designed for embedded MCUs. This is a port of the [original JustType editor](https://github.com/YonahKarp/cppEdit) from SDL/Nuklear to LVGL.
 
+If you want the build story and prototype timeline, start here:  
+[justtypeleaf.com/journey](https://justtypeleaf.com/journey?entry=home)
+
+If you want the 3D printable prototype files, start here:  
+[justtypeleaf.com/prototype-files](https://justtypeleaf.com/prototype-files?entry=home)
+
 ## Features
 
 
