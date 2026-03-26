@@ -8,6 +8,9 @@ A distraction-free text editor built with LVGL, designed for embedded MCUs. This
 
 ## Features
 
+
+<img src="assets/Video-extended.gif" alt="features gif" width="220" />
+
 - Boots straight into a writing interface
 - Auto-saves edits using a debounce timer: changes are buffered in memory, then flushed to disk after a short idle window to reduce write frequency while keeping data loss risk low
 - Remembers editor state so the user can pick up where they left off
@@ -20,6 +23,7 @@ A distraction-free text editor built with LVGL, designed for embedded MCUs. This
 - QR code export
 - Folder management 
 
+<img src="assets/Video-qr-transfer.gif" alt="QR transfer gif" width="220" />
 
 ## Prototype Hardware
 
