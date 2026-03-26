@@ -18,7 +18,7 @@ A distraction-free text editor built with LVGL, designed for embedded MCUs. This
 
 #### *NEW:*
 - QR code export
-- Folder Support
+- Folder management 
 
 
 ## Prototype Hardware
@@ -31,6 +31,9 @@ A distraction-free text editor built with LVGL, designed for embedded MCUs. This
 - slim 3,000mAh power bank
 - leather keyboard phone case.
 - [3D printed internals](https://justtypeleaf.com/prototype-files?entry=home)
+
+Follow the journey at 
+[justtypeleaf.com/journey](https://justtypeleaf.com/journey?entry=home)
 
 ## Requirements
 

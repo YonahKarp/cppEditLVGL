@@ -323,7 +323,7 @@ void qr_export_open(const EditorState& editor) {
 
     g_qr_export.qr_code = lv_qrcode_create(g_qr_export.overlay);
     int32_t min_side = std::min(lv_obj_get_width(parent), lv_obj_get_height(parent));
-    int32_t qr_size = std::max(260, min_side - 70);
+    int32_t qr_size = std::max(220, std::min(480, min_side - 140));
     lv_qrcode_set_size(g_qr_export.qr_code, qr_size);
     lv_qrcode_set_dark_color(g_qr_export.qr_code, theme.edit_text);
     lv_qrcode_set_light_color(g_qr_export.qr_code, theme.edit_bg);
